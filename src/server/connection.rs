@@ -1750,6 +1750,16 @@ impl Connection {
     }
 
     fn try_start_cm(&mut self, peer_id: String, name: String, authorized: bool) {
+        // Check if in unattended access mode, skip CM window creation
+        if self.is_unattended_access_mode() {
+            log::info!(
+                "[UNATTENDED] Skipping CM window creation - peer_id={}, authorized={}",
+                peer_id,
+                authorized
+            );
+            return;
+        }
+
         self.send_to_cm(ipc::Data::Login {
             id: self.inner.id(),
             is_file_transfer: self.file_transfer.is_some(),
@@ -1769,6 +1779,27 @@ impl Connection {
             block_input: self.block_input,
             from_switch: self.from_switch,
         });
+    }
+
+    /// Check if current mode is unattended access mode
+    ///
+    /// Unattended access mode requires all of the following conditions:
+    /// 1. `approve-mode = "password"` - Use password approval only
+    /// 2. `verification-method = "use-permanent-password"` - Use permanent password only
+    /// 3. `allow-hide-cm = "Y"` - Allow hiding connection manager
+    ///
+    /// # Returns
+    /// - `true` - Unattended mode, should skip CM window creation
+    /// - `false` - Normal mode, should show CM window
+    ///
+    /// # Implementation Note
+    /// This method reuses `hbb_common::password_security::hide_cm()` function,
+    /// which already implements all necessary configuration checks. Although this
+    /// method doesn't access instance fields, it uses `&self` parameter to maintain
+    /// consistency with other judgment methods in Connection (like `clipboard_enabled()`).
+    #[inline]
+    fn is_unattended_access_mode(&self) -> bool {
+        hbb_common::password_security::hide_cm()
     }
 
     #[inline]
