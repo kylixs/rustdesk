@@ -760,48 +760,81 @@ jobs:
           files: |
             rustdesk*-${{ matrix.job.arch }}.dmg
 
-  publish_unsigned:
+  publish_unsigned_windows_x86_64:
     needs:
-      - build-for-macOS
       - build-for-windows-flutter
-      # - build-for-windows-sciter
     runs-on: ubuntu-latest
     if: ${{ inputs.upload-artifact }}
     steps:
-      - name: Download artifacts
+      - name: Download Windows x86_64 artifacts
+        uses: actions/download-artifact@master
+        with:
+          name: rustdesk-unsigned-windows-x86_64
+          path: ./
+
+      - name: Publish Windows x86_64 unsigned artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: ./*
+
+  # publish_unsigned_windows_x86:
+  #   needs:
+  #     - build-for-windows-flutter
+  #   runs-on: ubuntu-latest
+  #   if: ${{ inputs.upload-artifact }}
+  #   steps:
+  #     - name: Download Windows x86 artifacts
+  #       uses: actions/download-artifact@master
+  #       with:
+  #         name: rustdesk-unsigned-windows-x86
+  #         path: ./
+
+  #     - name: Publish Windows x86 unsigned artifacts
+  #       uses: softprops/action-gh-release@v1
+  #       with:
+  #         prerelease: true
+  #         tag_name: ${{ env.TAG_NAME }}
+  #         files: ./*
+
+  publish_unsigned_macos_x86_64:
+    needs:
+      - build-for-macOS
+    runs-on: ubuntu-latest
+    if: ${{ inputs.upload-artifact }}
+    steps:
+      - name: Download macOS x86_64 artifacts
         uses: actions/download-artifact@master
         with:
           name: rustdesk-unsigned-macos-x86_64
           path: ./
 
-      - name: Download Artifacts
+      - name: Publish macOS x86_64 unsigned artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: ./*
+
+  publish_unsigned_macos_aarch64:
+    needs:
+      - build-for-macOS
+    runs-on: ubuntu-latest
+    if: ${{ inputs.upload-artifact }}
+    steps:
+      - name: Download macOS aarch64 artifacts
         uses: actions/download-artifact@master
         with:
           name: rustdesk-unsigned-macos-aarch64
           path: ./
 
-      - name: Download Artifacts
-        uses: actions/download-artifact@master
-        with:
-          name: rustdesk-unsigned-windows-x86_64
-          path: ./windows-x86_64/
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@master
-        with:
-          name: rustdesk-unsigned-windows-x86
-          path: ./windows-x86/
-
-      - name: Combine unsigned app
-        run: |
-          tar czf rustdesk-${{ env.VERSION }}-unsigned.tar.gz *.dmg windows-x86_64 windows-x86
-
-      - name: Publish unsigned app
+      - name: Publish macOS aarch64 unsigned artifacts
         uses: softprops/action-gh-release@v1
         with:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
-          files: rustdesk-${{ env.VERSION }}-unsigned.tar.gz
+          files: ./*
 
   build-rustdesk-android:
     if: false # Disabled Android build
@@ -1909,13 +1942,13 @@ jobs:
               arch: x86_64,
               suffix: "",
             }
-          - {
-              target: x86_64-unknown-linux-gnu,
-              distro: ubuntu22.04,
-              on: ubuntu-22.04,
-              arch: x86_64,
-              suffix: "-sciter",
-            }
+          # - {
+          #     target: x86_64-unknown-linux-gnu,
+          #     distro: ubuntu22.04,
+          #     on: ubuntu-22.04,
+          #     arch: x86_64,
+          #     suffix: "-sciter",
+          #   }
           - {
               target: aarch64-unknown-linux-gnu,
               # try out newer flatpak since error of "error: Nothing matches org.freedesktop.Platform in remote flathub"
