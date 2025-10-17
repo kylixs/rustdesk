@@ -113,10 +113,6 @@ pub fn global_init() -> bool {
             crate::server::wayland::init();
         }
     }
-
-    // Initialize DEFAULT_SETTINGS with unattended mode defaults
-    hbb_common::config::Config::init_unattended_mode_default_settings();
-
     true
 }
 
