@@ -34,6 +34,7 @@ CONFIGURATION:
     --option [KEY] [VALUE]          Get or set configuration option
                                     Usage: --option <key>         (get value)
                                            --option <key> <value> (set value)
+    --list-options                  List all configuration options and their values
 
 CONNECTION:
     --connect <ID>                  Connect to remote device
@@ -93,6 +94,9 @@ EXAMPLES:
     # Get current server configuration
     rustdesk --option custom-rendezvous-server
 
+    # List all configuration options
+    rustdesk --list-options
+
     # Connect to remote device
     rustdesk --connect 123456789
 
@@ -108,6 +112,7 @@ pub fn print_specific_help(command: &str) {
     match command {
         "password" | "--password" => print_password_help(),
         "option" | "--option" => print_option_help(),
+        "list-options" | "--list-options" => print_list_options_help(),
         "set-id" | "--set-id" => print_set_id_help(),
         "assign" | "--assign" => print_assign_help(),
         "connect" | "--connect" => print_connect_help(),
@@ -209,6 +214,63 @@ NOTES:
     - Options are stored in configuration files
 
 SEE ALSO:
+    --config            Import config from encrypted string
+    --import-config     Import config from file
+    --list-options      List all current option values
+"#);
+}
+
+/// Print help for --list-options command
+fn print_list_options_help() {
+    println!(r#"List all configuration options and their values
+
+USAGE:
+    rustdesk --list-options
+
+DESCRIPTION:
+    Display all current configuration options and their values in a formatted
+    table. This command does not require administrative privileges and is
+    useful for inspecting the current configuration state.
+
+EXAMPLES:
+    # List all options
+    rustdesk --list-options
+
+    # Save options to a file
+    rustdesk --list-options > options.txt
+
+    # Search for specific options
+    rustdesk --list-options | grep server
+
+OUTPUT FORMAT:
+    RustDesk Configuration Options:
+    ============================================================
+    custom-rendezvous-server       = rd-server.example.com
+    api-server                     = https://rd-server.example.com
+    relay-server                   = rd-server.example.com
+    allow-hide-cm                  = Y
+    ...
+    ============================================================
+    Total: N options
+
+COMMON OPTIONS YOU MIGHT SEE:
+    custom-rendezvous-server       Custom ID/relay server address
+    api-server                     API server URL
+    relay-server                   Relay server address
+    key                            Server public key
+    approve-mode                   Approval mode (click/password)
+    verification-method            Verification method
+    allow-hide-cm                  Allow hiding connection manager
+    allow-logon-screen-password    Allow login screen password
+
+NOTES:
+    - Empty values are shown as "(empty)"
+    - Options are sorted alphabetically
+    - This command shows effective configuration (merged from all sources)
+    - Does not require root/admin privileges
+
+SEE ALSO:
+    --option            Get or set individual options
     --config            Import config from encrypted string
     --import-config     Import config from file
 "#);

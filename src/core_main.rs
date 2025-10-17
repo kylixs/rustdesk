@@ -460,6 +460,30 @@ pub fn core_main() -> Option<Vec<String>> {
                 println!("Installation and administrative privileges required!");
             }
             return None;
+        } else if args[0] == "--list-options" {
+            let options = crate::ipc::get_options();
+            let mut keys: Vec<&String> = options.keys().collect();
+            keys.sort();
+
+            println!("RustDesk Configuration Options:");
+            println!("{}", "=".repeat(60));
+
+            if keys.is_empty() {
+                println!("No options configured (using defaults)");
+            } else {
+                for key in keys {
+                    let value = options.get(key).unwrap();
+                    if value.is_empty() {
+                        println!("{:30} = (empty)", key);
+                    } else {
+                        println!("{:30} = {}", key, value);
+                    }
+                }
+            }
+
+            println!("{}", "=".repeat(60));
+            println!("Total: {} options", options.len());
+            return None;
         } else if args[0] == "--assign" {
             if config::Config::no_register_device() {
                 println!("Cannot assign an unregistrable device!");
