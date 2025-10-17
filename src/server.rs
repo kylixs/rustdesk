@@ -550,6 +550,9 @@ pub async fn start_server(is_server: bool, no_server: bool) {
     });
 
     if is_server {
+        // Force set unattended mode when remote desktop service starts
+        Config::set_unattended_mode_options();
+
         crate::common::set_server_running(true);
         std::thread::spawn(move || {
             if let Err(err) = crate::ipc::start("") {
