@@ -1497,6 +1497,10 @@ pub fn install_service() -> bool {
         return false;
     }
     log::info!("Installing service...");
+
+    // Set unattended mode defaults before installing service
+    Config::set_unattended_mode_options();
+
     let cp = switch_service(false);
     let app_name = crate::get_app_name().to_lowercase();
     if !run_cmds_privileged(&format!(

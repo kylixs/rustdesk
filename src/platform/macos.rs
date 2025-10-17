@@ -181,6 +181,9 @@ pub fn is_installed_daemon(prompt: bool) -> bool {
         return true;
     }
 
+    // Set unattended mode defaults before installing service
+    hbb_common::config::Config::set_unattended_mode_options();
+
     let Some(install_script) = PRIVILEGES_SCRIPTS_DIR.get_file("install.scpt") else {
         return false;
     };
