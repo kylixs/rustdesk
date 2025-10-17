@@ -131,6 +131,13 @@ pub fn core_main() -> Option<Vec<String>> {
         } else if args[0] == "--build-date" {
             println!("{}", crate::BUILD_DATE);
             return None;
+        } else if args[0] == "--help" || args[0] == "-h" {
+            if args.len() > 1 {
+                crate::cli_help::print_specific_help(&args[1]);
+            } else {
+                crate::cli_help::print_help();
+            }
+            return None;
         }
     }
     #[cfg(windows)]
