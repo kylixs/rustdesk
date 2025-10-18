@@ -133,6 +133,18 @@ pub fn core_main() -> Option<Vec<String>> {
     if args.contains(&"--noinstall".to_string()) {
         args.clear();
     }
+    // Allocate console for CLI commands on Windows to enable stdout/stderr output
+    // Skip GUI modes (--gui, --cm) and service modes (--service, --tray)
+    #[cfg(windows)]
+    if args.len() > 0 && args[0].starts_with("--") {
+        let needs_console = !matches!(
+            args[0].as_str(),
+            "--service" | "--tray" | "--cm" | "--gui" | "--whiteboard"
+        );
+        if needs_console {
+            crate::platform::alloc_console();
+        }
+    }
     if args.len() > 0 {
         if args[0] == "--version" {
             println!("{}", crate::VERSION);

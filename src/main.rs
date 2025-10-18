@@ -1,5 +1,11 @@
+// In release mode on Windows, use GUI subsystem by default (no console window)
+// unless running with --server or other CLI arguments that need console output
 #![cfg_attr(
-    all(not(debug_assertions), target_os = "windows"),
+    all(
+        not(debug_assertions),
+        target_os = "windows",
+        not(feature = "cli")
+    ),
     windows_subsystem = "windows"
 )]
 
