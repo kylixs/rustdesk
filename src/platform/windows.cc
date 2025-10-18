@@ -835,8 +835,15 @@ extern "C"
 
     void alloc_console_and_redirect()
     {
-        AllocConsole();
+        // Check if process already has a console
+        if (GetConsoleWindow() == NULL)
+        {
+            // No console exists, create a new one
+            AllocConsole();
+        }
+        // Redirect stdout to the console (works for both new and existing console)
         freopen("CONOUT$", "w", stdout);
+        freopen("CONOUT$", "w", stderr);
     }
 
     bool is_service_running_w(LPCWSTR serviceName)
