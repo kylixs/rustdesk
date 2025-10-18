@@ -151,7 +151,8 @@ impl StatusReport {
 
     /// Print human-readable report
     pub fn print_human_readable(&self) {
-        println!("\n=== RustDesk 无人值守模式状态 ===\n");
+        println!("\n=== RustDesk 运行状态 ===");
+        println!("版本: {} ({})\n", crate::VERSION, crate::BUILD_DATE);
 
         // Service status
         println!("[服务状态]");
@@ -191,14 +192,8 @@ impl StatusReport {
         self.print_config_item("approve-mode", &self.config.approve_mode, "password");
         self.print_config_item("verification-method", &self.config.verification_method, "use-permanent-password");
 
-        if self.config.password_set {
-            println!("  ✓ 永久密码已设置");
-        } else {
-            println!("  ✗ 永久密码未设置");
-        }
-
-        self.print_bool_config("allow-hide-cm", self.config.allow_hide_cm);
-        self.print_bool_config("allow-logon-screen-password", self.config.allow_logon_screen);
+        self.print_bool_config("allow-hide-cm", self.config.allow_hide_cm, true);
+        self.print_bool_config("allow-logon-screen-password", self.config.allow_logon_screen, true);
 
         // Network status
         println!("\n[网络状态]");
@@ -253,11 +248,14 @@ impl StatusReport {
         }
     }
 
-    fn print_bool_config(&self, name: &str, enabled: bool) {
-        if enabled {
-            println!("  ✓ {}: Y", name);
+    fn print_bool_config(&self, name: &str, enabled: bool, expected: bool) {
+        let value = if enabled { "Y" } else { "N" };
+        let expected_value = if expected { "Y" } else { "N" };
+
+        if enabled == expected {
+            println!("  ✓ {}: {}", name, value);
         } else {
-            println!("  ○ {}: N", name);
+            println!("  ✗ {}: {} (应为: {})", name, value, expected_value);
         }
     }
 
