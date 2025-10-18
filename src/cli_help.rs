@@ -13,6 +13,9 @@ Build Date: {}
 USAGE:
     rustdesk [OPTIONS] [COMMAND]
 
+GUI MODE:
+    --gui                  Start graphical user interface
+
 INFORMATION COMMANDS:
     --version              Display version information
     --build-date           Display build date
@@ -85,6 +88,9 @@ OTHER:
 EXAMPLES:
     # View help for a specific command
     rustdesk --help --option
+
+    # start as gui application
+    rustdesk --gui
 
     # Set permanent password
     sudo rustdesk --password MySecurePassword

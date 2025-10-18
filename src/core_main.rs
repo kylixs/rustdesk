@@ -76,6 +76,16 @@ pub fn core_main() -> Option<Vec<String>> {
         }
         i += 1;
     }
+
+    // Handle default behavior: show help when no args
+    // Special cases that allow empty args:
+    // - Windows setup.exe (click_setup)
+    let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
+    if args.is_empty() && !click_setup {
+        crate::cli_help::print_help();
+        return None;
+    }
+
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     if args.is_empty() {
         #[cfg(target_os = "linux")]
@@ -116,7 +126,6 @@ pub fn core_main() -> Option<Vec<String>> {
     if _is_flutter_invoke_new_connection {
         return core_main_invoke_new_connection(std::env::args());
     }
-    let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
     if click_setup && !config::is_disable_installation() {
         args.push("--install".to_owned());
         flutter_args.push("--install".to_string());
@@ -320,8 +329,10 @@ pub fn core_main() -> Option<Vec<String>> {
                 // sleep a while so that process of removed exe exit
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 std::fs::remove_file(&args[1]).ok();
-                return None;
+            } else {
+                println!("Usage: rustdesk --remove <file_path>");
             }
+            return None;
         } else if args[0] == "--tray" {
             if !crate::check_process("--tray", true) {
                 crate::tray::start_tray();
@@ -633,6 +644,9 @@ pub fn core_main() -> Option<Vec<String>> {
                 crate::platform::gtk_sudo::exec();
             }
             return None;
+        } else if args[0] == "--gui" {
+            // Explicitly start GUI main interface
+            // No return None - will fallthrough to return Some(...)
         } else {
             #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -649,6 +663,11 @@ pub fn core_main() -> Option<Vec<String>> {
                 }
                 return None;
             }
+
+            // Unknown argument - show help
+            println!("Unknown command: {}\n", args[0]);
+            crate::cli_help::print_help();
+            return None;
         }
     }
     //_async_logger_holder.map(|x| x.flush());
