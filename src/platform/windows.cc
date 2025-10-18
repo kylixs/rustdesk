@@ -833,6 +833,16 @@ extern "C"
         return bSystem;
     }
 
+    static bool g_attached_parent_console = false;
+
+    void console_exit_handler() {
+        // Send newline to trigger parent console prompt
+        if (g_attached_parent_console) {
+            printf("\n");
+            fflush(stdout);
+        }
+    }
+
     void alloc_console_and_redirect()
     {
         // Check if process already has a console
@@ -840,7 +850,13 @@ extern "C"
         {
             // Try to attach to parent process's console first
             // This is important when run from cmd.exe or PowerShell
-            if (!AttachConsole(ATTACH_PARENT_PROCESS))
+            if (AttachConsole(ATTACH_PARENT_PROCESS))
+            {
+                g_attached_parent_console = true;
+                // Register exit handler to send newline
+                atexit(console_exit_handler);
+            }
+            else
             {
                 // No parent console, create a new one (e.g., when double-clicked)
                 AllocConsole();
