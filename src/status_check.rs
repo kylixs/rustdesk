@@ -41,6 +41,7 @@ pub struct ConfigStatus {
     pub hide_cm: bool,
     pub allow_hide_cm: bool,
     pub allow_logon_screen: bool,
+    pub direct_server: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -137,8 +138,13 @@ impl StatusReport {
             self.recommendations.push("Run: sudo rustdesk --option allow-hide-cm Y".to_string());
         }
 
-        // Network checks
-        if !self.network.rendezvous_connected {
+        if !self.config.direct_server {
+            self.issues.push("IP direct access mode is not enabled".to_string());
+            self.recommendations.push("Run: sudo rustdesk --option direct-server Y".to_string());
+        }
+
+        // Network checks - only check rendezvous server if NOT in direct IP mode
+        if !self.config.direct_server && !self.network.rendezvous_connected {
             self.issues.push("Cannot connect to rendezvous server".to_string());
             self.recommendations.push("Check network connectivity and firewall settings".to_string());
         }
@@ -194,19 +200,27 @@ impl StatusReport {
 
         self.print_bool_config("allow-hide-cm", self.config.allow_hide_cm, true);
         self.print_bool_config("allow-logon-screen-password", self.config.allow_logon_screen, true);
+        self.print_bool_config("direct-server", self.config.direct_server, true);
 
         // Network status
         println!("\n[网络状态]");
-        println!("  Rendezvous 服务器: {}", self.network.rendezvous_server);
-        if self.network.rendezvous_connected {
-            println!("    ✓ 连接正常");
+
+        // Only show ID Server info when NOT in direct IP mode
+        if !self.config.direct_server {
+            println!("  Rendezvous 服务器: {}", self.network.rendezvous_server);
+            if self.network.rendezvous_connected {
+                println!("    ✓ 连接正常");
+            } else {
+                println!("    ✗ 连接失败");
+            }
+
+            if !self.network.nat_type.is_empty() {
+                println!("  NAT 类型: {}", self.network.nat_type);
+            }
         } else {
-            println!("    ✗ 连接失败");
+            println!("  模式: IP 直连模式");
         }
 
-        if !self.network.nat_type.is_empty() {
-            println!("  NAT 类型: {}", self.network.nat_type);
-        }
         if !self.network.local_ip.is_empty() {
             println!("  本地 IP: {}", self.network.local_ip);
         }
@@ -216,7 +230,12 @@ impl StatusReport {
 
         // Device info
         println!("\n[连接信息]");
-        println!("  连接 ID: {}", self.device.id);
+
+        // Only show ID when NOT in direct IP mode
+        if !self.config.direct_server {
+            println!("  连接 ID: {}", self.device.id);
+        }
+
         if !self.device.uuid.is_empty() {
             println!("  设备 UUID: {}", self.device.uuid);
         }
@@ -406,6 +425,7 @@ impl ConfigStatus {
             hide_cm: false,
             allow_hide_cm: false,
             allow_logon_screen: false,
+            direct_server: false,
         }
     }
 
@@ -437,6 +457,12 @@ impl ConfigStatus {
         self.allow_logon_screen = hbb_common::config::option2bool(
             "allow-logon-screen-password",
             &Config::get_option("allow-logon-screen-password")
+        );
+
+        // Check IP direct access option
+        self.direct_server = hbb_common::config::option2bool(
+            "direct-server",
+            &Config::get_option("direct-server")
         );
     }
 }
