@@ -3090,6 +3090,39 @@ pub fn is_service_running(service_name: &str) -> bool {
     }
 }
 
+pub fn get_service_status() -> String {
+    let service_name = crate::get_app_name();
+    if is_service_running(&service_name) {
+        "Running".to_string()
+    } else {
+        use winapi::um::winsvc::{OpenSCManagerW, OpenServiceW, CloseServiceHandle, SC_MANAGER_CONNECT, SERVICE_QUERY_STATUS};
+        use winapi::shared::winerror::ERROR_SERVICE_DOES_NOT_EXIST;
+
+        unsafe {
+            let sc_manager = OpenSCManagerW(std::ptr::null(), std::ptr::null(), SC_MANAGER_CONNECT);
+            if sc_manager.is_null() {
+                return "Error: Cannot open service manager".to_string();
+            }
+
+            let service_name_wide = wide_string(&service_name);
+            let service = OpenServiceW(sc_manager, service_name_wide.as_ptr() as _, SERVICE_QUERY_STATUS);
+            CloseServiceHandle(sc_manager);
+
+            if service.is_null() {
+                let error = winapi::um::errhandlingapi::GetLastError();
+                if error == ERROR_SERVICE_DOES_NOT_EXIST {
+                    return "Not installed".to_string();
+                } else {
+                    return "Error: Cannot query service".to_string();
+                }
+            }
+
+            CloseServiceHandle(service);
+            "Stopped".to_string()
+        }
+    }
+}
+
 pub fn is_x64() -> bool {
     const PROCESSOR_ARCHITECTURE_AMD64: u16 = 9;
 

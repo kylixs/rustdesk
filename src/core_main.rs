@@ -484,6 +484,21 @@ pub fn core_main() -> Option<Vec<String>> {
             println!("{}", "=".repeat(60));
             println!("Total: {} options", options.len());
             return None;
+        } else if args[0] == "--status" {
+            // Check if --json flag is present
+            let json_output = args.contains(&"--json".to_string());
+
+            // Use comprehensive status check
+            match crate::status_check::check_status(json_output) {
+                Ok(_) => {},
+                Err(e) => {
+                    if !json_output {
+                        log::error!("Status check failed: {}", e);
+                    }
+                    std::process::exit(1);
+                }
+            }
+            return None;
         } else if args[0] == "--assign" {
             if config::Config::no_register_device() {
                 println!("Cannot assign an unregistrable device!");

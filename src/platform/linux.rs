@@ -1508,6 +1508,26 @@ pub fn install_service() -> bool {
     true
 }
 
+pub fn get_service_status() -> String {
+    if !has_cmd("systemctl") {
+        return "systemctl not available".to_string();
+    }
+    let app_name = crate::get_app_name().to_lowercase();
+    match run_cmds(&format!("systemctl is-active {app_name}")) {
+        Ok(status) => {
+            let status = status.trim();
+            if status == "active" {
+                "Running".to_string()
+            } else if status == "inactive" {
+                "Stopped".to_string()
+            } else {
+                status.to_string()
+            }
+        }
+        Err(_) => "Not installed".to_string(),
+    }
+}
+
 fn check_if_stop_service() {
     if Config::get_option("stop-service".into()) == "Y" {
         let app_name = crate::get_app_name().to_lowercase();

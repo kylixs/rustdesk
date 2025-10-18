@@ -21,6 +21,7 @@ INFORMATION COMMANDS:
 SERVICE MANAGEMENT:
     --install-service      Install RustDesk as a system service
     --uninstall-service    Uninstall RustDesk system service
+    --status               Display RustDesk service status
     --service              Run as system service (internal use)
     --server               Run server mode with tray icon
     --tray                 Run system tray only
@@ -116,7 +117,7 @@ pub fn print_specific_help(command: &str) {
         "set-id" | "--set-id" => print_set_id_help(),
         "assign" | "--assign" => print_assign_help(),
         "connect" | "--connect" => print_connect_help(),
-        "service" | "--service" | "--install-service" | "--uninstall-service" => print_service_help(),
+        "service" | "--service" | "--install-service" | "--uninstall-service" | "--status" => print_service_help(),
         "config" | "--config" | "--import-config" => print_config_help(),
         _ => {
             println!("Unknown command: {}", command);
@@ -404,6 +405,7 @@ fn print_service_help() {
 USAGE:
     rustdesk --install-service      Install as system service
     rustdesk --uninstall-service    Remove system service
+    rustdesk --status               Display service status
     rustdesk --service              Run as service (internal use)
 
 DESCRIPTION:
@@ -422,15 +424,43 @@ UNINSTALL SERVICE:
     On Windows (as Administrator):
     rustdesk.exe --uninstall-service
 
+CHECK SERVICE STATUS:
+    rustdesk --status [--json]
+
+    Comprehensive status check including:
+    - Service status (running, PID, uptime, autostart)
+    - Configuration validation (unattended mode settings)
+    - Network status (rendezvous server, NAT type, IPs)
+    - Device information (ID, UUID, active connections)
+    - Issue detection and recommendations
+
+    Use --json flag for machine-readable JSON output
+
 REQUIREMENTS:
-    - Administrative/root privileges required
+    - Administrative/root privileges required for install/uninstall
     - RustDesk must be installed (not portable mode)
+    - Status command does not require admin privileges
 
 NOTES:
     - Service runs automatically on system startup
     - Required for unattended access
     - Service runs in background without UI
     - Use --server for foreground mode with tray icon
+
+EXAMPLES:
+    # Install and check status
+    sudo rustdesk --install-service
+    rustdesk --status
+
+    # Check status in JSON format (for monitoring)
+    rustdesk --status --json
+
+    # Check status before uninstalling
+    rustdesk --status
+    sudo rustdesk --uninstall-service
+
+    # Use in monitoring scripts
+    rustdesk --status --json | jq '.status'
 
 SEE ALSO:
     --server    Run in foreground with tray icon

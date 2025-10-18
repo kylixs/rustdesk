@@ -304,6 +304,32 @@ fn correct_app_name(s: &str) -> String {
     s
 }
 
+pub fn get_service_status() -> String {
+    let agent = format!("{}_server.plist", crate::get_full_name());
+    let agent_plist_file = format!("/Library/LaunchAgents/{}", agent);
+
+    // Check if service is installed
+    if !std::path::Path::new(&agent_plist_file).exists() {
+        return "Not installed".to_string();
+    }
+
+    // Check if service is running by checking launchctl list
+    let output = std::process::Command::new("launchctl")
+        .args(&["list", &format!("{}_server", crate::get_full_name())])
+        .output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                "Running".to_string()
+            } else {
+                "Stopped".to_string()
+            }
+        }
+        Err(_) => "Stopped".to_string(),
+    }
+}
+
 pub fn uninstall_service(show_new_window: bool, sync: bool) -> bool {
     // to-do: do together with win/linux about refactory start/stop service
     if !is_installed_daemon(false) {
