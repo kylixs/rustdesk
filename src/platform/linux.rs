@@ -1435,8 +1435,8 @@ impl WakeLock {
 fn has_cmd(cmd: &str) -> bool {
     std::process::Command::new("which")
         .arg(cmd)
-        .status()
-        .map(|x| x.success())
+        .output()
+        .map(|x| x.status.success())
         .unwrap_or_default()
 }
 
