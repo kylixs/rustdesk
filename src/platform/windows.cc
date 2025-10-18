@@ -838,10 +838,16 @@ extern "C"
         // Check if process already has a console
         if (GetConsoleWindow() == NULL)
         {
-            // No console exists, create a new one
-            AllocConsole();
+            // Try to attach to parent process's console first
+            // This is important when run from cmd.exe or PowerShell
+            if (!AttachConsole(ATTACH_PARENT_PROCESS))
+            {
+                // No parent console, create a new one (e.g., when double-clicked)
+                AllocConsole();
+            }
         }
-        // Redirect stdout to the console (works for both new and existing console)
+
+        // Redirect C runtime streams to console
         freopen("CONOUT$", "w", stdout);
         freopen("CONOUT$", "w", stderr);
     }
