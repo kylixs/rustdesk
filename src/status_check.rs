@@ -221,9 +221,9 @@ impl StatusReport {
 
         // Device info
         println!("\n[连接信息]");
-        println!("  设备 ID: {}", self.device.id);
+        println!("  连接 ID: {}", self.device.id);
         if !self.device.uuid.is_empty() {
-            println!("  UUID: {}", self.device.uuid);
+            println!("  设备 UUID: {}", self.device.uuid);
         }
         println!("  当前连接数: {}", self.device.active_connections);
 
@@ -496,11 +496,11 @@ impl DeviceInfo {
     }
 
     fn collect(&mut self) {
-        // Get device ID
-        self.id = Config::get_id();
+        // Get device ID (same as --get-id command)
+        self.id = crate::ipc::get_id();
 
-        // Get UUID
-        self.uuid = hbb_common::get_uuid();
+        // Get UUID (encode to base64)
+        self.uuid = crate::encode64(hbb_common::get_uuid());
 
         // Get active connections count
         self.active_connections = self.get_active_connections();
