@@ -79,6 +79,9 @@ if [ ! -f "flutter/lib/generated_bridge.dart" ]; then
     ./scripts/generate_bridge.sh
 fi
 
+#clean packages
+rm -f rustdesk-*.rpm rustdesk-*.deb
+
 echo "✓ Building flutter app ..."
 python3 ./build.py --flutter --skip-cargo
 
