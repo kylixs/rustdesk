@@ -63,3 +63,5 @@ SignOutput
 *.com
 *.log
 *.txt
+libs/portable/app_metadata.toml
+libs/portable/Runner.res
