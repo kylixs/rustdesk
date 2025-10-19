@@ -12,6 +12,28 @@ A standalone library for handling console output in Windows GUI applications tha
 
 ## Usage
 
+### Option 1: Using Exported Macros (Recommended)
+
+```rust
+// In lib.rs or main.rs
+#[cfg(windows)]
+#[macro_use]
+extern crate win_console;
+
+fn main() {
+    // Initialize (auto-registers exit handler)
+    win_console::init();
+
+    // Use like normal println! macro
+    println!("Hello, World!");
+    println!("Line 2");
+
+    // Cleanup is automatic - no need to call cleanup()
+}
+```
+
+### Option 2: Direct Function Calls
+
 ```rust
 use win_console;
 
@@ -19,7 +41,7 @@ fn main() {
     // Initialize (auto-registers exit handler)
     win_console::init();
 
-    // Use like normal println
+    // Use function calls
     win_console::println("Hello, World!");
     win_console::println("Line 2");
 
@@ -65,6 +87,24 @@ win_console = { path = "../libs/win_console" }
 
 Then in your code:
 
+**Using macros (recommended):**
+
+```rust
+// In lib.rs or main.rs
+#[cfg(windows)]
+#[macro_use]
+extern crate win_console;
+
+fn main() {
+    if is_cli_mode {
+        win_console::init();
+        println!("CLI output");  // Uses win_console's println! macro
+    }
+}
+```
+
+**Using direct function calls:**
+
 ```rust
 use win_console;
 
@@ -89,6 +129,23 @@ Print a line with automatic terminal handling.
 ### `print(text: &str)`
 
 Print without newline with automatic terminal handling.
+
+### `set_prompt_push_delay(delay_ms: u64)`
+
+Configure the delay (in milliseconds) for PowerShell prompt pushing.
+
+**Default**: 20ms
+
+**When to adjust**:
+- If output is being overwritten by the PowerShell prompt, increase the delay (e.g., 50-100ms)
+- For very fast systems with simple output, you can keep the default 20ms
+
+**Example**:
+```rust
+win_console::init();
+win_console::set_prompt_push_delay(50); // Use 50ms for slower systems
+println!("Output with longer delay");
+```
 
 ## Known Limitations
 

@@ -36,6 +36,7 @@
 #[cfg(windows)]
 mod windows {
     use winapi::um::wincon::{AttachConsole, ATTACH_PARENT_PROCESS, GetConsoleWindow};
+    use winapi::um::consoleapi::WriteConsoleW;
     use winapi::um::winuser::GetWindowThreadProcessId;
     use winapi::um::processthreadsapi::{GetCurrentProcessId, OpenProcess};
     use winapi::um::winnt::PROCESS_QUERY_LIMITED_INFORMATION;
@@ -52,8 +53,6 @@ mod windows {
     use winapi::shared::minwindef::DWORD;
     use std::ptr::null_mut;
     use std::sync::Mutex;
-    use std::io::Write;
-    use std::ffi::CString;
 
     // Terminal type detection
     #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,6 +66,8 @@ mod windows {
     // Global state
     static TERMINAL_TYPE: Mutex<Option<TerminalType>> = Mutex::new(None);
     static POWERSHELL_BUFFERING: Mutex<bool> = Mutex::new(false);
+    static PROMPT_PUSH_DELAY_MS: Mutex<u64> = Mutex::new(20); // Default 20ms delay
+    static AT_LINE_START: Mutex<bool> = Mutex::new(true); // Track if cursor is at line start
 
     /// Initialize terminal output handling
     ///
@@ -140,10 +141,25 @@ mod windows {
         }
     }
 
+    /// Set the delay (in milliseconds) for PowerShell prompt pushing
+    ///
+    /// Default is 20ms. Increase if output is being overwritten by the prompt.
+    /// Typical values: 20-100ms depending on system performance.
+    ///
+    /// # Example
+    /// ```
+    /// win_console::set_prompt_push_delay(50); // Use 50ms delay for slower systems
+    /// ```
+    pub fn set_prompt_push_delay(delay_ms: u64) {
+        if let Ok(mut delay) = PROMPT_PUSH_DELAY_MS.lock() {
+            *delay = delay_ms;
+        }
+    }
+
     /// Cleanup terminal state (automatically called via atexit handler)
     fn cleanup() {
         use std::io::Write;
-        std::io::stdout().flush().unwrap();
+        let _ = std::io::stdout().flush();
 
         if let Ok(term_type) = TERMINAL_TYPE.lock() {
             match *term_type {
@@ -163,32 +179,35 @@ mod windows {
         }
     }
 
-    fn output_with_prompt_pushing(text: &str) {
+    fn output_line_with_prompt_push(line_content: &str) {
         unsafe {
             let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
             if stdout_handle.is_null() {
-                // Fallback to write_to_stdout
-                write_to_stdout(text);
+                write_to_stdout(line_content);
                 return;
             }
 
             let mut csbi: CONSOLE_SCREEN_BUFFER_INFO = std::mem::zeroed();
             if GetConsoleScreenBufferInfo(stdout_handle, &mut csbi) == 0 {
-                // Console operation failed (probably redirected), use write_to_stdout
-                write_to_stdout(text);
+                write_to_stdout(line_content);
                 return;
             }
 
+            // Step 1: Push prompt (send Enter key)
             let current_y = csbi.dwCursorPosition.Y;
-
             send_enter_key();
-            std::thread::sleep(std::time::Duration::from_millis(10));
 
+            // Step 2: Wait for prompt to move
+            let delay_ms = PROMPT_PUSH_DELAY_MS.lock().map(|d| *d).unwrap_or(20);
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+
+            // Step 3: Move cursor back to original position
             let mut pos: COORD = std::mem::zeroed();
             pos.X = 0;
             pos.Y = current_y;
             SetConsoleCursorPosition(stdout_handle, pos);
 
+            // Step 4: Clear the line
             let line_width = csbi.srWindow.Right - csbi.srWindow.Left + 1;
             let mut written: u32 = 0;
             FillConsoleOutputCharacterA(
@@ -199,8 +218,72 @@ mod windows {
                 &mut written,
             );
 
+            // Step 5: Reset cursor and output the line content
             SetConsoleCursorPosition(stdout_handle, pos);
-            write_to_stdout(text);
+            write_to_stdout(line_content);
+        }
+    }
+
+    fn output_with_prompt_pushing(text: &str) {
+        unsafe {
+            let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+            if stdout_handle.is_null() {
+                write_to_stdout(text);
+                return;
+            }
+
+            let mut csbi: CONSOLE_SCREEN_BUFFER_INFO = std::mem::zeroed();
+            if GetConsoleScreenBufferInfo(stdout_handle, &mut csbi) == 0 {
+                write_to_stdout(text);
+                return;
+            }
+
+            // Get global line start state
+            let mut at_line_start_guard = AT_LINE_START.lock().unwrap_or_else(|e| e.into_inner());
+
+            // Buffer to accumulate current line content
+            let mut current_line = String::new();
+
+            // Process text character by character
+            for ch in text.chars() {
+                if ch == '\n' {
+                    // We have a complete line (might be empty for leading \n)
+                    if *at_line_start_guard && !current_line.is_empty() {
+                        // Output the line with prompt push
+                        output_line_with_prompt_push(&current_line);
+                        *at_line_start_guard = false;
+                    } else if !current_line.is_empty() {
+                        // We're in the middle of a line, just output accumulated content
+                        write_to_stdout(&current_line);
+                    } else if *at_line_start_guard {
+                        // Empty line at line start (leading \n) - push prompt for empty line
+                        output_line_with_prompt_push("");
+                        *at_line_start_guard = false;
+                    }
+
+                    // Output the newline character
+                    write_to_stdout("\n");
+                    // Clear the line buffer
+                    current_line.clear();
+                    // Mark that we're now at the start of a new line
+                    *at_line_start_guard = true;
+                } else {
+                    // Accumulate non-newline characters
+                    current_line.push(ch);
+                }
+            }
+
+            // Output any remaining content in the buffer
+            if !current_line.is_empty() {
+                if *at_line_start_guard {
+                    // Start of a new line - push prompt
+                    output_line_with_prompt_push(&current_line);
+                    *at_line_start_guard = false;
+                } else {
+                    // Continuation of current line - just output
+                    write_to_stdout(&current_line);
+                }
+            }
         }
     }
 
@@ -219,7 +302,7 @@ mod windows {
             key_event.wRepeatCount = 1;
             key_event.wVirtualKeyCode = 0x0D;
             key_event.wVirtualScanCode = 0x1C;
-            key_event.uChar = unsafe { std::mem::zeroed() };
+            key_event.uChar = std::mem::zeroed();
             *key_event.uChar.UnicodeChar_mut() = 0x0D;
             key_event.dwControlKeyState = 0;
 
@@ -240,6 +323,7 @@ mod windows {
 
     /// Write directly to stdout using Windows API
     /// This works for both console output and file redirection in GUI apps
+    /// Handles UTF-8 encoding correctly for Windows console
     fn write_to_stdout(text: &str) {
         unsafe {
             let stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -247,15 +331,32 @@ mod windows {
                 return;
             }
 
-            let bytes = text.as_bytes();
-            let mut written: DWORD = 0;
-            WriteFile(
-                stdout_handle,
-                bytes.as_ptr() as *const _,
-                bytes.len() as DWORD,
-                &mut written,
-                null_mut(),
-            );
+            // Check if stdout is a console (not redirected)
+            let is_console = GetFileType(stdout_handle) == FILE_TYPE_CHAR;
+
+            if is_console {
+                // For console output, use WriteConsoleW for proper UTF-8 handling
+                let wide: Vec<u16> = text.encode_utf16().collect();
+                let mut written: DWORD = 0;
+                WriteConsoleW(
+                    stdout_handle,
+                    wide.as_ptr() as *const _,
+                    wide.len() as DWORD,
+                    &mut written,
+                    null_mut(),
+                );
+            } else {
+                // For file redirection, use WriteFile with UTF-8 bytes
+                let bytes = text.as_bytes();
+                let mut written: DWORD = 0;
+                WriteFile(
+                    stdout_handle,
+                    bytes.as_ptr() as *const _,
+                    bytes.len() as DWORD,
+                    &mut written,
+                    null_mut(),
+                );
+            }
         }
     }
 
@@ -308,7 +409,7 @@ mod windows {
 
 // Public API
 #[cfg(windows)]
-pub use windows::{init, println, print};
+pub use windows::{init, println, print, set_prompt_push_delay};
 
 #[cfg(not(windows))]
 pub mod stub {
@@ -320,7 +421,22 @@ pub mod stub {
 
     /// Stub print for non-Windows platforms
     pub fn print(text: &str) { print!("{}", text); }
+
+    /// Stub set_prompt_push_delay for non-Windows platforms
+    pub fn set_prompt_push_delay(_delay_ms: u64) { }
 }
 
 #[cfg(not(windows))]
-pub use stub::{init, println, print};
+pub use stub::{init, println, print, set_prompt_push_delay};
+
+// Export macro for easier use in applications
+#[macro_export]
+macro_rules! println {
+    () => { $crate::println("") };
+    ($($arg:tt)*) => { $crate::println(&format!($($arg)*)) };
+}
+
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => { $crate::print(&format!($($arg)*)) };
+}

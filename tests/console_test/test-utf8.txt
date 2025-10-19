@@ -1,8 +1,0 @@
-﻿Console Test - Testing Windows Console Behavior
-
-Usage:
-  console_test.exe              GUI mode (show window)
-  console_test.exe --gui        GUI mode (show window)
-  console_test.exe --version    Show version
-  console_test.exe --help       Show this help
-  console_test.exe --test       Run test
