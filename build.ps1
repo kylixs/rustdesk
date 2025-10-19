@@ -11,6 +11,7 @@ param(
     [switch]$NoHwcodec,
     [switch]$NoVram,
     [string]$Version,
+    [switch]$All,
     [switch]$Help
 )
 
@@ -50,7 +51,7 @@ function Write-Section {
 if ($Help) {
     Write-Host "RustDesk Windows Flutter 构建脚本"
     Write-Host ""
-    Write-Host "用法: .\build-rustdesk.ps1 [选项]"
+    Write-Host "用法: .\build.ps1 [选项]"
     Write-Host ""
     Write-Host "参数:"
     Write-Host "  -SkipBridge      跳过 Flutter-Rust 桥接代码生成"
@@ -61,15 +62,108 @@ if ($Help) {
     Write-Host "  -SkipPortable    跳过生成 portable 自解压程序"
     Write-Host "  -NoHwcodec       禁用硬件编解码支持"
     Write-Host "  -NoVram          禁用 VRAM 优化"
-    Write-Host "  -Version <ver>   指定版本号 (默认: 1.4.3)"
+    Write-Host "  -Version <ver>   指定版本号 (默认: 从 Cargo.toml 读取)"
+    Write-Host "  -All             执行所有步骤（忽略所有环境变量控制）"
     Write-Host "  -Help            显示此帮助信息"
+    Write-Host ""
+    Write-Host "环境变量控制:"
+    Write-Host "  BUILD_VERSION              版本号 (默认: 从 Cargo.toml 读取)"
+    Write-Host "  BROTLI_COMPRESSION_LEVEL   Brotli 压缩级别，范围 0-11 (默认: 6，适中)"
+    Write-Host "                             0=最快/最大, 6=适中, 11=最慢/最小"
+    Write-Host ""
+    Write-Host "  构建步骤控制（值为 Y/N，忽略大小写）:"
+    Write-Host "  BUILD_BRIDGE     是否生成 Flutter-Rust 桥接代码 (默认: N)"
+    Write-Host "  BUILD_TOPMOST    是否构建 TopMostWindow 组件 (默认: N)"
+    Write-Host "  BUILD_RUSTDESK   是否编译 RustDesk 主程序 (默认: Y)"
+    Write-Host "  BUILD_DRIVERS    是否集成驱动 (默认: N)"
+    Write-Host "  BUILD_PORTABLE   是否生成 portable 自解压程序 (默认: Y)"
+    Write-Host "  BUILD_MSI        是否构建 MSI 安装包 (默认: N)"
+    Write-Host ""
+    Write-Host "示例:"
+    Write-Host "  .\build.ps1                                                  # 执行默认步骤（BUILD_RUSTDESK + BUILD_PORTABLE）"
+    Write-Host "  .\build.ps1 -All                                             # 强制执行所有步骤"
+    Write-Host "  `$env:BUILD_MSI='Y'; .\build.ps1                             # 同时构建 MSI"
+    Write-Host "  `$env:BROTLI_COMPRESSION_LEVEL='11'; .\build.ps1             # 使用最高压缩（发布用）"
+    Write-Host "  `$env:BROTLI_COMPRESSION_LEVEL='3'; .\build.ps1              # 使用快速压缩（开发测试用）"
+    Write-Host "  `$env:BUILD_BRIDGE='Y'; `$env:BUILD_TOPMOST='Y'; .\build.ps1  # 包含 Bridge 和 TopMost"
     exit 0
 }
 
-# 环境变量
-$env:VERSION = if ($Version) { $Version } elseif ($env:VERSION) { $env:VERSION } else { "1.4.3" }
-$env:VCPKG_ROOT = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { "C:\vcpkg" }
-$env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-windows-static"
+# 从 Cargo.toml 读取版本号
+function Get-CargoVersion {
+    param([string]$CargoTomlPath = ".\Cargo.toml")
+
+    if (-not (Test-Path $CargoTomlPath)) {
+        Write-Warning "未找到 Cargo.toml，使用默认版本号 1.4.3"
+        return "1.4.3"
+    }
+
+    try {
+        $content = Get-Content $CargoTomlPath -Raw
+        # 匹配 [package] 部分中的 version，使用非贪婪模式匹配到下一个 section 或文件结尾
+        if ($content -match '\[package\][\s\S]*?version\s*=\s*"([^"]+)"') {
+            return $matches[1]
+        } else {
+            Write-Warning "无法从 Cargo.toml 的 [package] 部分解析版本号，使用默认版本号 1.4.3"
+            return "1.4.3"
+        }
+    } catch {
+        Write-Warning "读取 Cargo.toml 时出错: $($_.Exception.Message)，使用默认版本号 1.4.3"
+        return "1.4.3"
+    }
+}
+
+# 环境变量默认值设置
+if ($null -eq $env:BUILD_VERSION) {
+    $env:BUILD_VERSION = Get-CargoVersion
+}
+if ($null -eq $env:VCPKG_ROOT) { $env:VCPKG_ROOT = "C:\vcpkg" }
+if ($null -eq $env:VCPKG_DEFAULT_HOST_TRIPLET) { $env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-windows-static" }
+if ($null -eq $env:BROTLI_COMPRESSION_LEVEL) { $env:BROTLI_COMPRESSION_LEVEL = "6" }
+
+# 构建步骤环境变量默认值（外部设置的环境变量会覆盖这些默认值）
+if ($null -eq $env:BUILD_BRIDGE) { $env:BUILD_BRIDGE = "N" }
+if ($null -eq $env:BUILD_TOPMOST) { $env:BUILD_TOPMOST = "N" }
+if ($null -eq $env:BUILD_RUSTDESK) { $env:BUILD_RUSTDESK = "Y" }
+if ($null -eq $env:BUILD_DRIVERS) { $env:BUILD_DRIVERS = "N" }
+if ($null -eq $env:BUILD_PORTABLE) { $env:BUILD_PORTABLE = "Y" }
+if ($null -eq $env:BUILD_MSI) { $env:BUILD_MSI = "N" }
+
+# 如果命令行指定了版本号，覆盖环境变量
+if ($Version) { $env:BUILD_VERSION = $Version }
+
+# 步骤控制：优先级为 -All > 命令行参数 > 环境变量 > 默认值
+function Get-StepEnabled {
+    param(
+        [string]$EnvVarName,
+        [bool]$SkipParam,
+        [bool]$DefaultValue = $true
+    )
+
+    if ($All) {
+        return $true
+    }
+
+    if ($SkipParam) {
+        return $false
+    }
+
+    # 读取环境变量（此时已包含默认值或外部设置的值）
+    $EnvValue = Get-Item -Path "env:$EnvVarName" -ErrorAction SilentlyContinue
+    if ($null -ne $EnvValue) {
+        # 支持 Y/N，忽略大小写
+        return $EnvValue.Value.ToUpper() -eq "Y"
+    }
+
+    return $DefaultValue
+}
+
+$EnableBridge = Get-StepEnabled "BUILD_BRIDGE" $SkipBridge
+$EnableTopmost = Get-StepEnabled "BUILD_TOPMOST" $SkipTopmost
+$EnableBuild = Get-StepEnabled "BUILD_RUSTDESK" $SkipBuild
+$EnableDrivers = Get-StepEnabled "BUILD_DRIVERS" $SkipDrivers
+$EnablePortable = Get-StepEnabled "BUILD_PORTABLE" $SkipPortable
+$EnableMSI = Get-StepEnabled "BUILD_MSI" $SkipMSI
 
 # 构建参数
 $BuildPortable = $true
@@ -78,20 +172,21 @@ $BuildFlutter = $true
 $BuildVram = -not $NoVram
 
 Write-Section "RustDesk Windows Flutter 构建脚本"
-Write-Info "版本: $($env:VERSION)"
+Write-Info "版本: $($env:BUILD_VERSION)"
 Write-Info "vcpkg Root: $($env:VCPKG_ROOT)"
 
 Write-Info "构建配置:"
-Write-Host "  便携版: $BuildPortable"
 Write-Host "  Flutter UI: $BuildFlutter"
 Write-Host "  硬件编解码: $BuildHwcodec"
 Write-Host "  VRAM 优化: $BuildVram"
-Write-Host "  跳过桥接代码: $SkipBridge"
-Write-Host "  跳过 TopMostWindow: $SkipTopmost"
-Write-Host "  跳过驱动集成: $SkipDrivers"
-Write-Host "  跳过 MSI 构建: $SkipMSI"
-Write-Host "  跳过编译阶段: $SkipBuild"
-Write-Host "  跳过 Portable 程序: $SkipPortable"
+Write-Host ""
+Write-Info "执行步骤:"
+Write-Host "  桥接代码生成: $(if ($EnableBridge) {'✓'} else {'✗'})"
+Write-Host "  TopMostWindow: $(if ($EnableTopmost) {'✓'} else {'✗'})"
+Write-Host "  编译主程序: $(if ($EnableBuild) {'✓'} else {'✗'})"
+Write-Host "  驱动集成: $(if ($EnableDrivers) {'✓'} else {'✗'})"
+Write-Host "  Portable 打包: $(if ($EnablePortable) {'✓'} else {'✗'})"
+Write-Host "  MSI 构建: $(if ($EnableMSI) {'✓'} else {'✗'})"
 
 # 检查必需工具
 Write-Section "检查构建环境"
@@ -107,7 +202,7 @@ foreach ($Tool in $RequiredTools) {
 Write-Success "构建环境检查完成"
 
 # Task 12: 生成 Flutter-Rust 桥接代码
-if (-not $SkipBridge -and -not $SkipBuild) {
+if ($EnableBridge -and $EnableBuild) {
     Write-Section "Task 12: 生成 Flutter-Rust 桥接代码"
 
     # 检查工具
@@ -150,7 +245,7 @@ if (-not $SkipBridge -and -not $SkipBuild) {
 }
 
 # Task 13: 构建 RustDeskTempTopMostWindow
-if (-not $SkipTopmost -and -not $SkipBuild) {
+if ($EnableTopmost -and $EnableBuild) {
     Write-Section "Task 13: 构建 RustDeskTempTopMostWindow"
 
     if (-not (Test-Path "temp\topmostwindow")) {
@@ -194,7 +289,7 @@ if (-not $SkipTopmost -and -not $SkipBuild) {
 }
 
 # Task 14: 构建 RustDesk 主程序
-if (-not $SkipBuild) {
+if ($EnableBuild) {
     Write-Section "Task 14: 构建 RustDesk 主程序"
 
     # 构建参数
@@ -241,7 +336,7 @@ if (-not $SkipBuild) {
 }
 
 # Task 15-16: 集成驱动
-if (-not $SkipDrivers) {
+if ($EnableDrivers) {
     Write-Section "Task 15: 集成 USB 虚拟显示器驱动"
 
     # 检查驱动是否已存在
@@ -342,7 +437,7 @@ if ($RunnerRes) {
 }
 
 # Task 18: 集成 TopMostWindow 组件
-if (-not $SkipTopmost) {
+if ($EnableTopmost) {
     Write-Section "Task 18: 集成 TopMostWindow 组件"
 
     if (Test-Path "temp\topmostwindow\WindowInjection.dll") {
@@ -357,7 +452,7 @@ if (-not $SkipTopmost) {
 }
 
 # Task 19: 构建自解压可执行文件
-if (-not $SkipPortable) {
+if ($EnablePortable) {
     Write-Section "Task 19: 构建自解压可执行文件"
 
     Write-Info "修改 manifest.xml..."
@@ -368,11 +463,12 @@ if (-not $SkipPortable) {
     Push-Location libs\portable
     pip install -r requirements.txt --quiet
 
-    Write-Info "生成自解压打包器..."
+    Write-Info "生成自解压打包器... (压缩级别: $($env:BROTLI_COMPRESSION_LEVEL))"
     python generate.py `
         -f ..\..\rustdesk\ `
         -o . `
-        -e ..\..\rustdesk\rustdesk.exe
+        -e ..\..\rustdesk\rustdesk.exe `
+        -l $env:BROTLI_COMPRESSION_LEVEL
 
     Pop-Location
 
@@ -381,16 +477,16 @@ if (-not $SkipPortable) {
 
     # 移动生成的 EXE
     Write-Info "移动可执行文件..."
-    Move-Item .\target\release\rustdesk-portable-packer.exe .\SignOutput\rustdesk-$($env:VERSION)-x86_64.exe -Force
+    Move-Item .\target\release\rustdesk-portable-packer.exe .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe -Force
 
-    $ExeSize = (Get-Item .\SignOutput\rustdesk-$($env:VERSION)-x86_64.exe).Length / 1MB
-    Write-Success "自解压可执行文件已生成: rustdesk-$($env:VERSION)-x86_64.exe ($([math]::Round($ExeSize, 2)) MB)"
+    $ExeSize = (Get-Item .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe).Length / 1MB
+    Write-Success "自解压可执行文件已生成: rustdesk-$($env:BUILD_VERSION)-x86_64.exe ($([math]::Round($ExeSize, 2)) MB)"
 } else {
     Write-Warning "跳过 Portable 自解压程序生成"
 }
 
 # Task 20: 构建 MSI 安装包
-if (-not $SkipMSI) {
+if ($EnableMSI) {
     Write-Section "Task 20: 构建 MSI 安装包"
 
     Push-Location res\msi
@@ -434,15 +530,15 @@ if (-not $SkipMSI) {
         /p:TargetVersion=Windows10
 
     Write-Info "移动 MSI 文件..."
-    Move-Item .\Package\bin\x64\Release\en-us\Package.msi ..\..\SignOutput\rustdesk-$($env:VERSION)-x86_64.msi -Force
+    Move-Item .\Package\bin\x64\Release\en-us\Package.msi ..\..\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi -Force
 
     Pop-Location
 
-    $MsiSize = (Get-Item .\SignOutput\rustdesk-$($env:VERSION)-x86_64.msi).Length / 1MB
-    Write-Success "MSI 安装包已生成: rustdesk-$($env:VERSION)-x86_64.msi ($([math]::Round($MsiSize, 2)) MB)"
+    $MsiSize = (Get-Item .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi).Length / 1MB
+    Write-Success "MSI 安装包已生成: rustdesk-$($env:BUILD_VERSION)-x86_64.msi ($([math]::Round($MsiSize, 2)) MB)"
 
     Write-Info "生成 SHA256 校验和..."
-    Get-FileHash .\SignOutput\rustdesk-$($env:VERSION)-x86_64.msi -Algorithm SHA256 | Format-List
+    Get-FileHash .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi -Algorithm SHA256 | Format-List
 } else {
     Write-Warning "跳过 MSI 安装包构建"
 }
@@ -454,14 +550,14 @@ Write-Success "RustDesk 构建成功完成!"
 Write-Host ""
 Write-Info "输出文件:"
 
-if (Test-Path ".\SignOutput\rustdesk-$($env:VERSION)-x86_64.exe") {
-    $ExeSize = (Get-Item ".\SignOutput\rustdesk-$($env:VERSION)-x86_64.exe").Length / 1MB
-    Write-Host "  - rustdesk-$($env:VERSION)-x86_64.exe ($([math]::Round($ExeSize, 2)) MB)"
+if (Test-Path ".\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe") {
+    $ExeSize = (Get-Item ".\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe").Length / 1MB
+    Write-Host "  - rustdesk-$($env:BUILD_VERSION)-x86_64.exe ($([math]::Round($ExeSize, 2)) MB)"
 }
 
-if (Test-Path ".\SignOutput\rustdesk-$($env:VERSION)-x86_64.msi") {
-    $MsiSize = (Get-Item ".\SignOutput\rustdesk-$($env:VERSION)-x86_64.msi").Length / 1MB
-    Write-Host "  - rustdesk-$($env:VERSION)-x86_64.msi ($([math]::Round($MsiSize, 2)) MB)"
+if (Test-Path ".\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi") {
+    $MsiSize = (Get-Item ".\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi").Length / 1MB
+    Write-Host "  - rustdesk-$($env:BUILD_VERSION)-x86_64.msi ($([math]::Round($MsiSize, 2)) MB)"
 }
 
 Write-Host ""
@@ -483,8 +579,8 @@ Write-Host "  - 测试前请确保关闭正在运行的 RustDesk 实例"
 Write-Host ""
 
 Write-Info "下一步:"
-Write-Host "  1. 测试可执行文件: .\SignOutput\rustdesk-$($env:VERSION)-x86_64.exe"
-Write-Host "  2. 安装 MSI 包测试: .\SignOutput\rustdesk-$($env:VERSION)-x86_64.msi"
+Write-Host "  1. 测试可执行文件: .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe"
+Write-Host "  2. 安装 MSI 包测试: .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi"
 Write-Host "  3. 查看构建日志排查问题"
 Write-Host ""
 
