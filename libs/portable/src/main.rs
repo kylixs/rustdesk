@@ -98,11 +98,45 @@ fn setup(
     Some(dir.join(&reader.exe))
 }
 
+/// Check if running in CLI mode (any argument starting with --)
+fn is_cli_mode(args: &Vec<String>) -> bool {
+    args.iter().any(|arg| arg.starts_with("--"))
+}
+
+/// Execute in CLI mode with console output support
+fn execute_cli_mode(path: PathBuf, args: Vec<String>) {
+    // Initialize win_console to attach to parent console
+    win_console::init();
+
+    // Setup environment
+    let exe = std::env::current_exe().unwrap_or_default();
+    let exe_name = exe.file_name().unwrap_or_default();
+
+    // Execute rustdesk.exe and wait for completion
+    let mut cmd = Command::new(&path);
+    cmd.args(&args)
+        .env(APPNAME_RUNTIME_ENV_KEY, exe_name)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    // Execute and wait for completion
+    match cmd.status() {
+        Ok(status) => {
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        Err(e) => {
+            eprintln!("Failed to execute rustdesk: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
 fn use_null_stdio() -> bool {
     #[cfg(windows)]
     {
         // When running in CMD on Windows 7, using Stdio::inherit() with spawn returns an "invalid handle" error.
-        // Since using Stdio::null() didn’t cause any issues, and determining whether the program is launched from CMD or by double-clicking would require calling more APIs during startup, we also use Stdio::null() when launched by double-clicking on Windows 7.
+        // Since using Stdio::null() didn't cause any issues, and determining whether the program is launched from CMD or by double-clicking would require calling more APIs during startup, we also use Stdio::null() when launched by double-clicking on Windows 7.
         let is_windows_7 = is_windows_7();
         println!("is windows7: {}", is_windows_7);
         return is_windows_7;
@@ -189,21 +223,38 @@ fn main() {
     let click_setup = args.is_empty() && arg_exe.to_lowercase().ends_with("install.exe");
     let quick_support = args.is_empty() && arg_exe.to_lowercase().ends_with("qs.exe");
 
-    let mut ui = false;
-    let reader = BinaryReader::default();
-    if let Some(exe) = setup(
-        reader,
-        None,
-        click_setup || args.contains(&"--silent-install".to_owned()),
-        &args,
-        &mut ui,
-    ) {
-        if click_setup {
-            args = vec!["--install".to_owned()];
-        } else if quick_support {
-            args = vec!["--quick_support".to_owned()];
+    // Check if running in CLI mode
+    if is_cli_mode(&args) {
+        // CLI mode: use win_console for output
+        let reader = BinaryReader::default();
+        let mut ui = false;
+        if let Some(exe) = setup(
+            reader,
+            None,
+            false,
+            &args,
+            &mut ui,
+        ) {
+            execute_cli_mode(exe, args);
         }
-        execute(exe, args, ui);
+    } else {
+        // GUI mode: original logic
+        let mut ui = false;
+        let reader = BinaryReader::default();
+        if let Some(exe) = setup(
+            reader,
+            None,
+            click_setup || args.contains(&"--silent-install".to_owned()),
+            &args,
+            &mut ui,
+        ) {
+            if click_setup {
+                args = vec!["--install".to_owned()];
+            } else if quick_support {
+                args = vec!["--quick_support".to_owned()];
+            }
+            execute(exe, args, ui);
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 /build
-/target
+target
 .vscode
 .idea
 .DS_Store
@@ -60,4 +60,6 @@ temp/
 SignOutput
 *.zip
 *.dll
-usbmmidd_v2
+*.com
+*.log
+*.txt
