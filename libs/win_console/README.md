@@ -16,6 +16,12 @@ A standalone library for handling console output in Windows GUI applications tha
 
 ```rust
 // In lib.rs or main.rs
+// Enable windows gui mode
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
+
 #[cfg(windows)]
 #[macro_use]
 extern crate win_console;
