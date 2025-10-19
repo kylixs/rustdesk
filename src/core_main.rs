@@ -133,18 +133,22 @@ pub fn core_main() -> Option<Vec<String>> {
     if args.contains(&"--noinstall".to_string()) {
         args.clear();
     }
-    // Allocate console for CLI commands on Windows to enable stdout/stderr output
-    // Skip GUI modes (--gui, --cm) and service modes (--service, --tray)
+    // Initialize console for CLI commands on Windows
+    // Enables stdout/stderr output for GUI applications (windows_subsystem = "windows")
+    // Supports PowerShell, CMD, and Git Bash with automatic prompt positioning
     #[cfg(windows)]
-    if args.len() > 0 && args[0].starts_with("--") {
-        let needs_console = !matches!(
-            args[0].as_str(),
-            "--service" | "--tray" | "--cm" | "--gui" | "--whiteboard"
-        );
-        if needs_console {
-            crate::platform::alloc_console();
+    let _cli_mode = {
+        const GUI_MODES: &[&str] = &["--service", "--tray", "--cm", "--gui", "--whiteboard"];
+        match args.first() {
+            Some(arg) if arg.starts_with("--") && !GUI_MODES.contains(&arg.as_str()) => {
+                win_console::init();
+                win_console::set_prompt_push_delay(20);
+                true
+            }
+            _ => false,
         }
-    }
+    };
+
     if args.len() > 0 {
         if args[0] == "--version" {
             println!("{}", crate::VERSION);

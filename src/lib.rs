@@ -1,3 +1,8 @@
+// Import win_console macros for Windows CLI output support
+#[cfg(windows)]
+#[macro_use]
+extern crate win_console;
+
 mod keyboard;
 /// cbindgen:ignore
 pub mod platform;

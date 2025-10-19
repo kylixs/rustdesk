@@ -6628,6 +6628,7 @@ dependencies = [
  "uuid",
  "virtual_display",
  "wallpaper",
+ "win_console",
  "winapi 0.3.9",
  "windows 0.61.1",
  "windows-service",
@@ -8913,6 +8914,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b7b128a98c1cfa201b09eb49ba285887deb3cbe7466a98850eb1adabb452be5"
 dependencies = [
  "windows 0.34.0",
+]
+
+[[package]]
+name = "win_console"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
 ]
 
 [[package]]
