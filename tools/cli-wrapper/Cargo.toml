@@ -1,0 +1,17 @@
+[package]
+name = "cli-wrapper"
+version = "1.0.0"
+edition = "2021"
+description = "Generic .COM wrapper for Windows GUI applications to solve console blocking"
+
+[workspace]
+# Empty workspace to prevent being part of parent workspace
+
+[[bin]]
+name = "cli-wrapper"
+path = "src/main.rs"
+
+[dependencies]
+
+# This is a console application - no windows_subsystem config needed
+# It will compile as a console subsystem program, which is what we want
