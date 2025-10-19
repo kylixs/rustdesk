@@ -15,9 +15,10 @@ cli = []
 [workspace]
 
 [dependencies]
+win_console = { path = "../../libs/win_console" }
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["wincon", "winbase", "processenv", "handleapi", "winuser", "consoleapi", "libloaderapi", "wingdi", "winnt"] }
+winapi = { version = "0.3", features = ["winuser", "libloaderapi", "wingdi", "winbase"] }
 
 [profile.release]
 strip = true
