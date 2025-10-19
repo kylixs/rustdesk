@@ -1,9 +1,7 @@
 // Console test program to verify terminal behavior on Windows
 // Simulates RustDesk's GUI/CLI mode behavior
 //
-// This version uses modular architecture:
-// - console: Cross-platform terminal support
-// - gui: Simple Windows GUI
+// This version uses the win_console library for cross-terminal support
 
 #![cfg_attr(
     all(
@@ -14,11 +12,10 @@
     windows_subsystem = "windows"
 )]
 
-mod console;
 mod gui;
 
-// Global import for convenience
-use console::println;
+// Use win_console library for terminal handling
+use win_console::println;
 
 #[cfg(windows)]
 fn main() {
@@ -35,7 +32,7 @@ fn main() {
 
     if is_cli_mode {
         // CLI mode - initialize console output handling
-        console::init();
+        win_console::init();
 
         match args[1].as_str() {
             "--version" => {
