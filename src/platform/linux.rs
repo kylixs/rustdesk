@@ -1508,6 +1508,40 @@ pub fn install_service() -> bool {
     true
 }
 
+/// Stop the RustDesk service without uninstalling it
+pub fn stop_service() -> bool {
+    if !has_cmd("systemctl") {
+        log::error!("systemctl not available");
+        return false;
+    }
+    log::info!("Stopping service...");
+    let app_name = crate::get_app_name().to_lowercase();
+    if !run_cmds_privileged(&format!("systemctl stop {app_name}")) {
+        log::error!("Failed to stop service");
+        return false;
+    }
+    Config::set_option("stop-service".into(), "Y".into());
+    log::info!("Service stopped successfully");
+    true
+}
+
+/// Start the RustDesk service
+pub fn start_service() -> bool {
+    if !has_cmd("systemctl") {
+        log::error!("systemctl not available");
+        return false;
+    }
+    log::info!("Starting service...");
+    let app_name = crate::get_app_name().to_lowercase();
+    if !run_cmds_privileged(&format!("systemctl start {app_name}")) {
+        log::error!("Failed to start service");
+        return false;
+    }
+    Config::set_option("stop-service".into(), "".into());
+    log::info!("Service started successfully");
+    true
+}
+
 pub fn get_service_status() -> String {
     if !has_cmd("systemctl") {
         return "systemctl not available".to_string();

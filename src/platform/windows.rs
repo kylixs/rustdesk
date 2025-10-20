@@ -2642,6 +2642,42 @@ pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
     std::process::exit(0);
 }
 
+pub fn stop_service() -> bool {
+    log::info!("Stopping service...");
+    let app_name = crate::get_app_name();
+    let cmds = format!(
+        "
+    chcp 65001
+    sc stop {app_name}
+    "
+    );
+    if let Err(err) = run_cmds(cmds, false, "stop_service") {
+        log::error!("Failed to stop service: {}", err);
+        return false;
+    }
+    Config::set_option("stop-service".into(), "Y".into());
+    log::info!("Service stopped successfully");
+    true
+}
+
+pub fn start_service() -> bool {
+    log::info!("Starting service...");
+    let app_name = crate::get_app_name();
+    let cmds = format!(
+        "
+    chcp 65001
+    sc start {app_name}
+    "
+    );
+    if let Err(err) = run_cmds(cmds, false, "start_service") {
+        log::error!("Failed to start service: {}", err);
+        return false;
+    }
+    Config::set_option("stop-service".into(), "".into());
+    log::info!("Service started successfully");
+    true
+}
+
 pub fn install_service() -> bool {
     log::info!("Installing service...");
     let _installing = crate::platform::InstallingService::new();
@@ -2921,9 +2957,9 @@ fn run_after_run_cmds(silent: bool) {
             .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
             .spawn());
     }
-    if Config::get_option("stop-service") != "Y" {
-        allow_err!(std::process::Command::new(&exe).arg("--tray").spawn());
-    }
+    // if Config::get_option("stop-service") != "Y" {
+    //     allow_err!(std::process::Command::new(&exe).arg("--tray").spawn());
+    // }
     std::thread::sleep(std::time::Duration::from_millis(300));
 }
 

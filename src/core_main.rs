@@ -412,6 +412,22 @@ pub fn core_main() -> Option<Vec<String>> {
             log::info!("start --uninstall-service");
             crate::platform::uninstall_service(false, true);
             return None;
+        } else if args[0] == "--start-service" {
+            log::info!("start --start-service");
+            if crate::platform::start_service() {
+                println!("Service started successfully");
+            } else {
+                println!("Failed to start service");
+            }
+            return None;
+        } else if args[0] == "--stop-service" {
+            log::info!("start --stop-service");
+            if crate::platform::stop_service() {
+                println!("Service stopped successfully");
+            } else {
+                println!("Failed to stop service");
+            }
+            return None;
         } else if args[0] == "--service" {
             log::info!("start --service");
             crate::start_os_service();

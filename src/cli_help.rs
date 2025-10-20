@@ -24,6 +24,8 @@ INFORMATION COMMANDS:
 SERVICE MANAGEMENT:
     --install-service      Install RustDesk as a system service
     --uninstall-service    Uninstall RustDesk system service
+    --start-service        Start RustDesk service
+    --stop-service         Stop RustDesk service
     --status               Display RustDesk service status
     --service              Run as system service (internal use)
     --server               Run server mode with tray icon
@@ -123,7 +125,7 @@ pub fn print_specific_help(command: &str) {
         "set-id" | "--set-id" => print_set_id_help(),
         "assign" | "--assign" => print_assign_help(),
         "connect" | "--connect" => print_connect_help(),
-        "service" | "--service" | "--install-service" | "--uninstall-service" | "--status" => print_service_help(),
+        "service" | "--service" | "--install-service" | "--uninstall-service" | "--start-service" | "--stop-service" | "--status" => print_service_help(),
         "config" | "--config" | "--import-config" => print_config_help(),
         _ => {
             println!("Unknown command: {}", command);
@@ -411,6 +413,8 @@ fn print_service_help() {
 USAGE:
     rustdesk --install-service      Install as system service
     rustdesk --uninstall-service    Remove system service
+    rustdesk --start-service        Start the service
+    rustdesk --stop-service         Stop the service
     rustdesk --status               Display service status
     rustdesk --service              Run as service (internal use)
 
@@ -418,17 +422,14 @@ DESCRIPTION:
     Manage RustDesk as a system service for automatic startup and
     background operation.
 
-INSTALL SERVICE:
+INSTALL/UNINSTALL/START/STOP SERVICE:
+    On Linux/macOS: MUST run with sudo or as root
     sudo rustdesk --install-service
-
-    On Windows (as Administrator):
-    rustdesk.exe --install-service
-
-UNINSTALL SERVICE:
     sudo rustdesk --uninstall-service
 
-    On Windows (as Administrator):
-    rustdesk.exe --uninstall-service
+    On Windows    : MUST run as Administrator
+    rustdesk-portable.exe --install-service
+    "C:\Program Files\RustDesk\RustDesk.exe" --stop-service
 
 CHECK SERVICE STATUS:
     rustdesk --status [--json]
