@@ -23,6 +23,7 @@ if ($Help -or $NewVersion -eq "-h" -or $NewVersion -eq "--help" -or [string]::Is
     Write-Host "  1. Cargo.toml [package] version (main program version)"
     Write-Host "  2. Cargo.toml [workspace.package] version (workspace version)"
     Write-Host "  3. All subcomponents automatically inherit workspace version (version.workspace = true)"
+    Write-Host "  4. GitHub workflow files (.github/workflows/flutter-build.yml, playground.yml, winget.yml)"
     exit 0
 }
 
@@ -81,17 +82,62 @@ if ($changeCount -eq 0) {
 # Write back to file
 $content | Set-Content $CargoToml -NoNewline
 
+# Update GitHub workflow files
+$workflowFiles = @(
+    ".\.github\workflows\flutter-build.yml",
+    ".\.github\workflows\playground.yml",
+    ".\.github\workflows\winget.yml"
+)
+
+foreach ($workflowFile in $workflowFiles) {
+    if (Test-Path $workflowFile) {
+        $workflowContent = Get-Content $workflowFile -Raw
+        $workflowChanged = $false
+
+        # Update VERSION: "x.x.x" pattern
+        $newWorkflowContent = $workflowContent -replace '(?m)^(\s*VERSION:\s*)"[^"]*"', "`${1}`"$NewVersion`""
+        if ($newWorkflowContent -ne $workflowContent) {
+            $workflowChanged = $true
+            $workflowContent = $newWorkflowContent
+        }
+
+        # Update version: "x.x.x" pattern (for winget.yml)
+        $newWorkflowContent = $workflowContent -replace '(?m)^(\s*version:\s*)"[^"]*"', "`${1}`"$NewVersion`""
+        if ($newWorkflowContent -ne $workflowContent) {
+            $workflowChanged = $true
+            $workflowContent = $newWorkflowContent
+        }
+
+        # Update release-tag: "x.x.x" pattern (for winget.yml)
+        $newWorkflowContent = $workflowContent -replace '(?m)^(\s*release-tag:\s*)"[^"]*"', "`${1}`"$NewVersion`""
+        if ($newWorkflowContent -ne $workflowContent) {
+            $workflowChanged = $true
+            $workflowContent = $newWorkflowContent
+        }
+
+        if ($workflowChanged) {
+            $workflowContent | Set-Content $workflowFile -NoNewline
+            $changeCount++
+            $fileName = Split-Path $workflowFile -Leaf
+            Write-Host "[OK] Updated $fileName version = `"$NewVersion`"" -ForegroundColor Green
+        }
+    }
+}
+
 Write-Host ""
 Write-Host "[SUCCESS] Version successfully updated to $NewVersion" -ForegroundColor Green
 Write-Host ""
 Write-Host "Updated locations:" -ForegroundColor Cyan
 Write-Host "  - Cargo.toml [package] version"
 Write-Host "  - Cargo.toml [workspace.package] version"
+Write-Host "  - .github/workflows/flutter-build.yml"
+Write-Host "  - .github/workflows/playground.yml"
+Write-Host "  - .github/workflows/winget.yml"
 Write-Host ""
 Write-Host "Subcomponents inheriting workspace version (version.workspace = true):"
 Write-Host "  - libs/portable (rustdesk-portable-packer)"
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  1. Verify changes: git diff Cargo.toml"
+Write-Host "  1. Verify changes: git diff Cargo.toml .github/workflows/"
 Write-Host "  2. Test build: .\build.ps1"
-Write-Host "  3. Commit changes: git add Cargo.toml && git commit -m `"chore: bump version to $NewVersion`""
+Write-Host "  3. Commit changes: git add Cargo.toml .github/workflows/ && git commit -m `"chore: bump version to $NewVersion`""

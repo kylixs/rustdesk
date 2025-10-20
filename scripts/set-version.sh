@@ -29,6 +29,7 @@ show_help() {
     echo "  1. Cargo.toml [package] version (main program version)"
     echo "  2. Cargo.toml [workspace.package] version (workspace version)"
     echo "  3. All subcomponents automatically inherit workspace version (version.workspace = true)"
+    echo "  4. GitHub workflow files (.github/workflows/flutter-build.yml, playground.yml, winget.yml)"
     exit 0
 }
 
@@ -111,17 +112,56 @@ if [ $CHANGE_COUNT -eq 0 ]; then
     exit 1
 fi
 
+# Update GitHub workflow files
+WORKFLOW_FILES=(
+    "./.github/workflows/flutter-build.yml"
+    "./.github/workflows/playground.yml"
+    "./.github/workflows/winget.yml"
+)
+
+for WORKFLOW_FILE in "${WORKFLOW_FILES[@]}"; do
+    if [ -f "$WORKFLOW_FILE" ]; then
+        WORKFLOW_CHANGED=0
+
+        # Create backup
+        cp "$WORKFLOW_FILE" "$WORKFLOW_FILE.bak"
+
+        # Update VERSION: "x.x.x" pattern
+        perl -i -pe 's/^(\s*VERSION:\s*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$WORKFLOW_FILE"
+
+        # Update version: "x.x.x" pattern (for winget.yml)
+        perl -i -pe 's/^(\s*version:\s*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$WORKFLOW_FILE"
+
+        # Update release-tag: "x.x.x" pattern (for winget.yml)
+        perl -i -pe 's/^(\s*release-tag:\s*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$WORKFLOW_FILE"
+
+        # Check if file was changed
+        if ! diff -q "$WORKFLOW_FILE" "$WORKFLOW_FILE.bak" > /dev/null 2>&1; then
+            WORKFLOW_CHANGED=1
+            CHANGE_COUNT=$((CHANGE_COUNT + 1))
+            FILE_NAME=$(basename "$WORKFLOW_FILE")
+            echo -e "${GREEN}[OK] Updated $FILE_NAME version = \"$NEW_VERSION\"${NC}"
+        fi
+
+        # Clean up backup
+        rm -f "$WORKFLOW_FILE.bak"
+    fi
+done
+
 echo ""
 echo -e "${GREEN}[SUCCESS] Version successfully updated to $NEW_VERSION${NC}"
 echo ""
 echo -e "${CYAN}Updated locations:${NC}"
 echo "  - Cargo.toml [package] version"
 echo "  - Cargo.toml [workspace.package] version"
+echo "  - .github/workflows/flutter-build.yml"
+echo "  - .github/workflows/playground.yml"
+echo "  - .github/workflows/winget.yml"
 echo ""
 echo -e "${CYAN}Subcomponents inheriting workspace version (version.workspace = true):${NC}"
 echo "  - libs/portable (rustdesk-portable-packer)"
 echo ""
 echo -e "${CYAN}Next steps:${NC}"
-echo "  1. Verify changes: git diff Cargo.toml"
+echo "  1. Verify changes: git diff Cargo.toml .github/workflows/"
 echo "  2. Test build: ./build.sh (or build.ps1 on Windows)"
-echo "  3. Commit changes: git add Cargo.toml && git commit -m \"chore: bump version to $NEW_VERSION\""
+echo "  3. Commit changes: git add Cargo.toml .github/workflows/ && git commit -m \"chore: bump version to $NEW_VERSION\""
