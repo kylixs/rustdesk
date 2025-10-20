@@ -94,8 +94,9 @@ function Get-CargoVersion {
     param([string]$CargoTomlPath = ".\Cargo.toml")
 
     if (-not (Test-Path $CargoTomlPath)) {
-        Write-Warning "未找到 Cargo.toml，使用默认版本号 1.4.3"
-        return "1.4.3"
+        Write-Error "未找到 Cargo.toml 文件: $CargoTomlPath"
+        Write-Error "请确保在 RustDesk 项目根目录运行此脚本"
+        exit 1
     }
 
     try {
@@ -104,13 +105,37 @@ function Get-CargoVersion {
         if ($content -match '\[package\][\s\S]*?version\s*=\s*"([^"]+)"') {
             return $matches[1]
         } else {
-            Write-Warning "无法从 Cargo.toml 的 [package] 部分解析版本号，使用默认版本号 1.4.3"
-            return "1.4.3"
+            Write-Error "无法从 Cargo.toml 的 [package] 部分解析版本号"
+            Write-Error "请检查 Cargo.toml 文件格式是否正确"
+            exit 1
         }
     } catch {
-        Write-Warning "读取 Cargo.toml 时出错: $($_.Exception.Message)，使用默认版本号 1.4.3"
-        return "1.4.3"
+        Write-Error "读取 Cargo.toml 时出错: $($_.Exception.Message)"
+        exit 1
     }
+}
+
+# 验证版本号格式（支持 SemVer 2.0: x.y.z[-prerelease][+build]）
+function Test-VersionFormat {
+    param([string]$Version)
+
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        Write-Error "版本号不能为空"
+        return $false
+    }
+
+    # SemVer 2.0 格式验证
+    if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z\-.]+)?(\+[0-9A-Za-z\-.]+)?$') {
+        Write-Error "版本号格式不正确: $Version"
+        Write-Error "支持的格式示例:"
+        Write-Host "  1.4.3" -ForegroundColor Gray
+        Write-Host "  1.4.3-alpha" -ForegroundColor Gray
+        Write-Host "  1.4.3-jc12" -ForegroundColor Gray
+        Write-Host "  1.4.3-rc.1+build.123" -ForegroundColor Gray
+        return $false
+    }
+
+    return $true
 }
 
 # 环境变量默认值设置
@@ -131,6 +156,14 @@ if ($null -eq $env:BUILD_MSI) { $env:BUILD_MSI = "N" }
 
 # 如果命令行指定了版本号，覆盖环境变量
 if ($Version) { $env:BUILD_VERSION = $Version }
+
+# 验证版本号格式
+Write-Info "验证版本号格式..."
+if (-not (Test-VersionFormat -Version $env:BUILD_VERSION)) {
+    Write-Error "构建失败: 版本号格式验证不通过"
+    exit 1
+}
+Write-Success "版本号格式验证通过: $($env:BUILD_VERSION)"
 
 # 步骤控制：优先级为 -All > 命令行参数 > 环境变量 > 默认值
 function Get-StepEnabled {
