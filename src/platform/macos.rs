@@ -20,6 +20,7 @@ use core_graphics::{
 use hbb_common::{
     anyhow::anyhow,
     bail, log,
+    config::Config,
     message_proto::{DisplayInfo, Resolution},
     sysinfo::{Pid, Process, ProcessRefreshKind, System},
 };
