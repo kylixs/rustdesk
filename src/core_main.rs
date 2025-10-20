@@ -6,7 +6,7 @@ use crate::platform::breakdown_callback;
 #[cfg(not(debug_assertions))]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use hbb_common::platform::register_breakdown_handler;
-use hbb_common::{config, log};
+use hbb_common::{config, config::Config, log};
 #[cfg(windows)]
 use tauri_winrt_notification::{Duration, Sound, Toast};
 
@@ -356,6 +356,8 @@ pub fn core_main() -> Option<Vec<String>> {
             return None;
         } else if args[0] == "--install-service" {
             log::info!("start --install-service");
+            // Set unattended access mode configuration during service installation
+            Config::set_unattended_mode_options();
             crate::platform::install_service();
             return None;
         } else if args[0] == "--uninstall-service" {
