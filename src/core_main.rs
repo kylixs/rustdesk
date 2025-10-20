@@ -136,11 +136,59 @@ pub fn core_main() -> Option<Vec<String>> {
     // Initialize console for CLI commands on Windows
     // Enables stdout/stderr output for GUI applications (windows_subsystem = "windows")
     // Supports PowerShell, CMD, and Git Bash with automatic prompt positioning
+    //
+    // Uses whitelist approach: only allocate console for explicit CLI commands
+    // This prevents console allocation for GUI modes (--connect, --gui, etc.)
     #[cfg(windows)]
     let _cli_mode = {
-        const GUI_MODES: &[&str] = &["--service", "--tray", "--cm", "--gui", "--whiteboard"];
+        const CLI_COMMANDS: &[&str] = &[
+            // Information commands
+            "--version",
+            "--build-date",
+            "--help",
+            "--get-id",
+
+            // Configuration commands
+            "--password",
+            "--permanent-password",
+            "--set-unlock-pin",
+            "--set-id",
+            "--option",
+            "--list-options",
+            "--config",
+            "--import-config",
+            "--export-config",
+
+            // Service management
+            "--install-service",
+            "--uninstall-service",
+            "--start-service",
+            "--stop-service",
+            "--status",
+
+            // Installation (CLI only)
+            "--silent-install",
+            // "--install",         // Removed: opens GUI installer
+            // "--uninstall",       // Removed: opens GUI uninstaller with UAC prompt
+
+            // Device management
+            "--assign",
+
+            // Hardware/Driver management
+            "--check-hwcodec-config",
+            "--hwcodec",
+            "--install-idd",
+            "--uninstall-amyuni-idd",
+            "--install-remote-printer",
+            "--uninstall-remote-printer",
+            "--uninstall-cert",
+
+            // Plugin management
+            "--plugin-install",
+            "--plugin-uninstall",
+        ];
         match args.first() {
-            Some(arg) if arg.starts_with("--") && !GUI_MODES.contains(&arg.as_str()) => {
+            Some(arg) if CLI_COMMANDS.contains(&arg.as_str()) => {
                 win_console::init();
                 win_console::set_prompt_push_delay(20);
                 true
