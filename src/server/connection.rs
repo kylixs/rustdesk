@@ -4377,27 +4377,44 @@ async fn start_ipc(
         #[cfg(target_os = "linux")]
         let mut user = None;
 
-        // Cm run as user, wait until desktop session is ready.
-        #[cfg(target_os = "linux")]
-        if crate::platform::is_headless_allowed() && linux_desktop_manager::is_headless() {
-            let mut username = linux_desktop_manager::get_username();
-            loop {
-                if !username.is_empty() {
-                    break;
-                }
-                let _res = timeout(1_000, _rx_desktop_ready.recv()).await;
-                username = linux_desktop_manager::get_username();
+        // Determine whether to use --cm-no-ui or --cm
+        // Priority: 1. Linux headless  2. Unattended access mode  3. Default --cm
+        let use_no_ui = {
+            #[cfg(target_os = "linux")]
+            {
+                crate::platform::is_headless_allowed() && linux_desktop_manager::is_headless()
             }
-            let uid = {
-                let output = run_cmds(&format!("id -u {}", &username))?;
-                let output = output.trim();
-                if output.is_empty() || !output.parse::<i32>().is_ok() {
-                    bail!("Invalid username {}", &username);
-                }
-                output.to_string()
-            };
-            user = Some((uid, username));
+            #[cfg(not(target_os = "linux"))]
+            {
+                false
+            }
+        } || hbb_common::password_security::hide_cm();
+
+        if use_no_ui {
             args = vec!["--cm-no-ui"];
+            log::info!("[CM] Starting connection manager in no-ui mode (unattended access or headless)");
+
+            // Cm run as user, wait until desktop session is ready (Linux headless only).
+            #[cfg(target_os = "linux")]
+            if crate::platform::is_headless_allowed() && linux_desktop_manager::is_headless() {
+                let mut username = linux_desktop_manager::get_username();
+                loop {
+                    if !username.is_empty() {
+                        break;
+                    }
+                    let _res = timeout(1_000, _rx_desktop_ready.recv()).await;
+                    username = linux_desktop_manager::get_username();
+                }
+                let uid = {
+                    let output = run_cmds(&format!("id -u {}", &username))?;
+                    let output = output.trim();
+                    if output.is_empty() || !output.parse::<i32>().is_ok() {
+                        bail!("Invalid username {}", &username);
+                    }
+                    output.to_string()
+                };
+                user = Some((uid, username));
+            }
         }
         let run_done;
         if crate::platform::is_root() {
