@@ -476,7 +476,8 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--option" {
-            if crate::platform::is_installed() && is_root() {
+            // Only check admin privileges, not installation status
+            if is_root() {
                 if args.len() == 2 {
                     let options = crate::ipc::get_options();
                     println!("{}", options.get(&args[1]).unwrap_or(&"".to_owned()));
@@ -484,7 +485,7 @@ pub fn core_main() -> Option<Vec<String>> {
                     crate::ipc::set_option(&args[1], &args[2]);
                 }
             } else {
-                println!("Installation and administrative privileges required!");
+                println!("Administrative privileges required!");
             }
             return None;
         } else if args[0] == "--list-options" {
