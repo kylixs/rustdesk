@@ -6527,7 +6527,7 @@ dependencies = [
 
 [[package]]
 name = "rustdesk"
-version = "1.4.3-jlc14"
+version = "1.4.3-jlc15"
 dependencies = [
  "android-wakelock",
  "android_logger",
@@ -6553,6 +6553,7 @@ dependencies = [
  "dbus",
  "dbus-crossroads",
  "default-net",
+ "dirs 5.0.1",
  "dispatch",
  "docopt",
  "enigo",
@@ -6579,6 +6580,7 @@ dependencies = [
  "libpulse-simple-binding",
  "mac_address",
  "magnum-opus",
+ "md5",
  "nix 0.29.0",
  "num_cpus",
  "objc",
@@ -6601,6 +6603,7 @@ dependencies = [
  "rubato",
  "runas",
  "rust-pulsectl",
+ "rustdesk-portable-packer",
  "samplerate",
  "sciter-rs",
  "scrap",
@@ -6643,7 +6646,7 @@ dependencies = [
 
 [[package]]
 name = "rustdesk-portable-packer"
-version = "1.4.3-jlc14"
+version = "1.4.3-jlc15"
 dependencies = [
  "brotli",
  "dirs 5.0.1",

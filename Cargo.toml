@@ -1,6 +1,6 @@
 [package]
 name = "rustdesk"
-version = "1.4.3-jlc14"
+version = "1.4.3-jlc15"
 authors = ["rustdesk <info@rustdesk.com>"]
 edition = "2021"
 build= "build.rs"
@@ -10,7 +10,7 @@ rust-version = "1.75"
 
 [workspace.package]
 # set workspace version for modules
-version = "1.4.3-jlc14"
+version = "1.4.3-jlc15"
 
 [lib]
 name = "librustdesk"
@@ -140,6 +140,9 @@ impersonate_system = { git = "https://github.com/rustdesk-org/impersonate-system
 shared_memory = "0.12"
 tauri-winrt-notification = "0.1"
 runas = "1.2"
+md5 = "0.7"
+dirs = "5.0"
+rustdesk-portable-packer = { path = "libs/portable" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
