@@ -13,23 +13,43 @@ CYAN='\033[0;36m'
 GRAY='\033[0;37m'
 NC='\033[0m' # No Color
 
+# Cross-platform sed in-place edit
+sed_inplace() {
+    local pattern="$1"
+    local file="$2"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "$pattern" "$file"
+    else
+        sed -i "$pattern" "$file"
+    fi
+}
+
 show_help() {
     echo "RustDesk Version Management Script"
     echo ""
-    echo "Usage: ./scripts/set-version.sh <version>"
+    echo "Usage: ./scripts/set-version.sh <version> [build-number]"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/set-version.sh 1.4.4"
-    echo "  ./scripts/set-version.sh 1.5.0"
+    echo "  ./scripts/set-version.sh 1.4.4 62"
+    echo "  ./scripts/set-version.sh 1.5.0 100"
     echo "  ./scripts/set-version.sh 1.4.3-jlc11"
-    echo "  ./scripts/set-version.sh 1.4.3-rc.1+build.123"
+    echo "  ./scripts/set-version.sh 1.4.3-rc.1+build.123 65"
     echo ""
     echo "Description:"
     echo "  This script will update version numbers in the following locations:"
-    echo "  1. Cargo.toml [package] version (main program version)"
+    echo "  1. Cargo.toml [package] version (Rust version: x.y.z-suffix)"
     echo "  2. Cargo.toml [workspace.package] version (workspace version)"
-    echo "  3. All subcomponents automatically inherit workspace version (version.workspace = true)"
-    echo "  4. GitHub workflow files (.github/workflows/flutter-build.yml, playground.yml, winget.yml)"
+    echo "  3. flutter/pubspec.yaml version (Flutter version: x.y.z+build)"
+    echo "  4. libs/portable/Cargo.toml version"
+    echo "  5. GitHub workflow files (.github/workflows/flutter-build.yml, playground.yml, winget.yml)"
+    echo "  6. AppImage builder files (appimage/AppImageBuilder-*.yml)"
+    echo "  7. Package spec files (res/PKGBUILD, res/*.spec)"
+    echo ""
+    echo "Version format:"
+    echo "  - Cargo: x.y.z-suffix (e.g., 1.4.3-jlc13)"
+    echo "  - Flutter: x.y.z-suffix+build (e.g., 1.4.3-jlc14+62)"
+    echo "  - The script automatically uses full version for Flutter"
+    echo "  - Build number is optional, defaults to auto-increment or manual input"
     exit 0
 }
 
@@ -39,6 +59,7 @@ if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 fi
 
 NEW_VERSION="$1"
+BUILD_NUMBER="$2"
 
 # Validate version format (supports SemVer 2.0: x.y.z[-prerelease][+build])
 if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
@@ -112,6 +133,44 @@ if [ $CHANGE_COUNT -eq 0 ]; then
     exit 1
 fi
 
+# Update Flutter pubspec.yaml
+PUBSPEC_FILE="./flutter/pubspec.yaml"
+if [ -f "$PUBSPEC_FILE" ]; then
+    # Determine build number
+    if [ -z "$BUILD_NUMBER" ]; then
+        # Read current build number from pubspec.yaml
+        if grep -qE 'version:\s*[0-9.]+[^+]*\+[0-9]+' "$PUBSPEC_FILE"; then
+            CURRENT_BUILD=$(grep -oE 'version:\s*[0-9.]+[^+]*\+([0-9]+)' "$PUBSPEC_FILE" | sed -E 's/.*\+([0-9]+)/\1/')
+            BUILD_NUMBER=$((CURRENT_BUILD + 1))
+            echo -e "${CYAN}[INFO] Auto-incrementing build number: $CURRENT_BUILD -> $BUILD_NUMBER${NC}"
+        else
+            BUILD_NUMBER=1
+            echo -e "${CYAN}[INFO] No existing build number found, using: $BUILD_NUMBER${NC}"
+        fi
+    fi
+
+    # Use full version including suffix (e.g., 1.4.3-jlc14)
+    FLUTTER_VERSION="$NEW_VERSION+$BUILD_NUMBER"
+
+    # Create backup
+    cp "$PUBSPEC_FILE" "$PUBSPEC_FILE.bak"
+
+    # Update version in pubspec.yaml
+    # Use sed for simple replacement: version: X.Y.Z+BUILD -> version: NEW_VERSION+BUILD
+    sed_inplace 's|^version: *[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*.*|version: '"$FLUTTER_VERSION"'|' "$PUBSPEC_FILE"
+
+    # Check if file was changed
+    if ! diff -q "$PUBSPEC_FILE" "$PUBSPEC_FILE.bak" > /dev/null 2>&1; then
+        CHANGE_COUNT=$((CHANGE_COUNT + 1))
+        echo -e "${GREEN}[OK] Updated flutter/pubspec.yaml version = \"$FLUTTER_VERSION\"${NC}"
+    fi
+
+    # Clean up backup
+    rm -f "$PUBSPEC_FILE.bak"
+else
+    echo -e "${YELLOW}[WARNING] flutter/pubspec.yaml not found${NC}"
+fi
+
 # Update GitHub workflow files
 WORKFLOW_FILES=(
     "./.github/workflows/flutter-build.yml"
@@ -121,23 +180,20 @@ WORKFLOW_FILES=(
 
 for WORKFLOW_FILE in "${WORKFLOW_FILES[@]}"; do
     if [ -f "$WORKFLOW_FILE" ]; then
-        WORKFLOW_CHANGED=0
-
         # Create backup
         cp "$WORKFLOW_FILE" "$WORKFLOW_FILE.bak"
 
         # Update VERSION: "x.x.x" pattern
-        perl -i -pe 's/^(\s*VERSION:\s*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$WORKFLOW_FILE"
+        sed_inplace 's/^\( *VERSION: *"\)[^"]*"/\1'"$NEW_VERSION"'"/' "$WORKFLOW_FILE"
 
         # Update version: "x.x.x" pattern (for winget.yml)
-        perl -i -pe 's/^(\s*version:\s*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$WORKFLOW_FILE"
+        sed_inplace 's/^\( *version: *"\)[^"]*"/\1'"$NEW_VERSION"'"/' "$WORKFLOW_FILE"
 
         # Update release-tag: "x.x.x" pattern (for winget.yml)
-        perl -i -pe 's/^(\s*release-tag:\s*)"[^"]*"/\1"'"$NEW_VERSION"'"/' "$WORKFLOW_FILE"
+        sed_inplace 's/^\( *release-tag: *"\)[^"]*"/\1'"$NEW_VERSION"'"/' "$WORKFLOW_FILE"
 
         # Check if file was changed
         if ! diff -q "$WORKFLOW_FILE" "$WORKFLOW_FILE.bak" > /dev/null 2>&1; then
-            WORKFLOW_CHANGED=1
             CHANGE_COUNT=$((CHANGE_COUNT + 1))
             FILE_NAME=$(basename "$WORKFLOW_FILE")
             echo -e "${GREEN}[OK] Updated $FILE_NAME version = \"$NEW_VERSION\"${NC}"
@@ -148,20 +204,128 @@ for WORKFLOW_FILE in "${WORKFLOW_FILES[@]}"; do
     fi
 done
 
+# Update AppImage builder files
+APPIMAGE_FILES=(
+    "./appimage/AppImageBuilder-aarch64.yml"
+    "./appimage/AppImageBuilder-x86_64.yml"
+)
+
+for APPIMAGE_FILE in "${APPIMAGE_FILES[@]}"; do
+    if [ -f "$APPIMAGE_FILE" ]; then
+        # Create backup
+        cp "$APPIMAGE_FILE" "$APPIMAGE_FILE.bak"
+
+        # Update version under app_info section only
+        # Match exactly 4 spaces + "version:" to avoid top-level "version: 1"
+        sed_inplace 's|^    version: .*|    version: '"$NEW_VERSION"'|' "$APPIMAGE_FILE"
+
+        # Check if file was changed
+        if ! diff -q "$APPIMAGE_FILE" "$APPIMAGE_FILE.bak" > /dev/null 2>&1; then
+            CHANGE_COUNT=$((CHANGE_COUNT + 1))
+            FILE_NAME=$(basename "$APPIMAGE_FILE")
+            echo -e "${GREEN}[OK] Updated $FILE_NAME version = \"$NEW_VERSION\"${NC}"
+        fi
+
+        # Clean up backup
+        rm -f "$APPIMAGE_FILE.bak"
+    fi
+done
+
+# Update libs/portable/Cargo.toml (skip if using workspace version)
+PORTABLE_CARGO="./libs/portable/Cargo.toml"
+if [ -f "$PORTABLE_CARGO" ]; then
+    # Check if using workspace version
+    if ! grep -q "version.workspace\s*=\s*true" "$PORTABLE_CARGO"; then
+        # Create backup
+        cp "$PORTABLE_CARGO" "$PORTABLE_CARGO.bak"
+
+        # Update version in [package] section
+        perl -i -pe '
+            BEGIN { $in_package = 0; $done = 0; }
+            if (/^\[package\]/) { $in_package = 1; }
+            elsif (/^\[/) { $in_package = 0; }
+            if ($in_package && /^version\s*=\s*"[^"]*"/ && !$done) {
+                s/^version\s*=\s*"[^"]*"/version = "'"$NEW_VERSION"'"/;
+                $done = 1;
+            }
+        ' "$PORTABLE_CARGO"
+
+        # Check if file was changed
+        if ! diff -q "$PORTABLE_CARGO" "$PORTABLE_CARGO.bak" > /dev/null 2>&1; then
+            CHANGE_COUNT=$((CHANGE_COUNT + 1))
+            echo -e "${GREEN}[OK] Updated libs/portable/Cargo.toml version = \"$NEW_VERSION\"${NC}"
+        fi
+
+        # Clean up backup
+        rm -f "$PORTABLE_CARGO.bak"
+    else
+        echo -e "${CYAN}[INFO] libs/portable/Cargo.toml uses workspace version (automatically inherits from workspace)${NC}"
+    fi
+fi
+
+# Update package spec files
+SPEC_FILES=(
+    "./res/PKGBUILD"
+    "./res/rpm-flutter-suse.spec"
+    "./res/rpm-flutter.spec"
+    "./res/rpm.spec"
+)
+
+for SPEC_FILE in "${SPEC_FILES[@]}"; do
+    if [ -f "$SPEC_FILE" ]; then
+        # Create backup
+        cp "$SPEC_FILE" "$SPEC_FILE.bak"
+
+        # Simple replacement: match entire version line and replace
+        sed_inplace 's|^pkgver=.*|pkgver='"$NEW_VERSION"'|' "$SPEC_FILE"
+        sed_inplace 's|^Version: .*|Version:    '"$NEW_VERSION"'|' "$SPEC_FILE"
+
+        # Check if file was changed
+        if ! diff -q "$SPEC_FILE" "$SPEC_FILE.bak" > /dev/null 2>&1; then
+            CHANGE_COUNT=$((CHANGE_COUNT + 1))
+            FILE_NAME=$(basename "$SPEC_FILE")
+            echo -e "${GREEN}[OK] Updated $FILE_NAME version = \"$NEW_VERSION\"${NC}"
+        fi
+
+        # Clean up backup
+        rm -f "$SPEC_FILE.bak"
+    fi
+done
+
 echo ""
-echo -e "${GREEN}[SUCCESS] Version successfully updated to $NEW_VERSION${NC}"
+echo -e "${GREEN}[SUCCESS] Version successfully updated!${NC}"
+echo ""
+echo -e "${CYAN}Updated versions:${NC}"
+echo "  - Rust version (Cargo.toml): $NEW_VERSION"
+if [ -f "$PUBSPEC_FILE" ] && [ -n "$FLUTTER_VERSION" ]; then
+    echo "  - Flutter version (pubspec.yaml): $FLUTTER_VERSION"
+fi
 echo ""
 echo -e "${CYAN}Updated locations:${NC}"
-echo "  - Cargo.toml [package] version"
-echo "  - Cargo.toml [workspace.package] version"
+echo "  - Cargo.toml [package] version = \"$NEW_VERSION\""
+echo "  - Cargo.toml [workspace.package] version = \"$NEW_VERSION\""
+if [ -f "$PUBSPEC_FILE" ] && [ -n "$FLUTTER_VERSION" ]; then
+    echo "  - flutter/pubspec.yaml version = \"$FLUTTER_VERSION\""
+fi
+echo "  - libs/portable/Cargo.toml (inherits from workspace)"
 echo "  - .github/workflows/flutter-build.yml"
 echo "  - .github/workflows/playground.yml"
 echo "  - .github/workflows/winget.yml"
+echo "  - appimage/AppImageBuilder-aarch64.yml"
+echo "  - appimage/AppImageBuilder-x86_64.yml"
+echo "  - res/PKGBUILD"
+echo "  - res/rpm-flutter-suse.spec"
+echo "  - res/rpm-flutter.spec"
+echo "  - res/rpm.spec"
 echo ""
-echo -e "${CYAN}Subcomponents inheriting workspace version (version.workspace = true):${NC}"
-echo "  - libs/portable (rustdesk-portable-packer)"
+echo -e "${CYAN}Version breakdown:${NC}"
+echo "  - Rust uses: $NEW_VERSION (e.g., 1.4.3-jlc13)"
+if [ -f "$PUBSPEC_FILE" ] && [ -n "$FLUTTER_VERSION" ]; then
+    echo "  - Flutter uses: $FLUTTER_VERSION (version+build, e.g., 1.4.3-jlc14+62)"
+    echo "  - PE file header will use: $FLUTTER_VERSION (from Flutter build)"
+fi
 echo ""
 echo -e "${CYAN}Next steps:${NC}"
-echo "  1. Verify changes: git diff Cargo.toml .github/workflows/"
-echo "  2. Test build: ./build.sh (or build.ps1 on Windows)"
-echo "  3. Commit changes: git add Cargo.toml .github/workflows/ && git commit -m \"chore: bump version to $NEW_VERSION\""
+echo "  1. Verify changes: git diff"
+echo "  2. Test build: cargo build --release"
+echo "  3. Commit changes: git add -A && git commit -m \"chore: bump version to $NEW_VERSION\""
