@@ -107,6 +107,12 @@ impl Drop for SimpleCallOnReturn {
 }
 
 pub fn global_init() -> bool {
+    // Set HIDE_TRAY default value to "Y"
+    config::BUILTIN_SETTINGS
+        .write()
+        .unwrap()
+        .insert(config::keys::OPTION_HIDE_TRAY.to_string(), "Y".to_string());
+
     #[cfg(target_os = "linux")]
     {
         if !crate::platform::linux::is_x11() {
