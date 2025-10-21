@@ -11,7 +11,6 @@
 
 use hbb_common::{config::Config, log, ResultType};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StatusReport {
@@ -31,6 +30,12 @@ pub struct ServiceStatus {
     pub uptime_seconds: Option<u64>,
     pub autostart_enabled: bool,
     pub unattended_mode: bool,
+    pub exe_path: Option<String>,
+    pub version: Option<String>,
+    pub md5: Option<String>,
+    pub file_size: Option<u64>,
+    pub build_date: Option<String>,
+    pub listening_ports: Vec<u16>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -158,7 +163,7 @@ impl StatusReport {
     /// Print human-readable report
     pub fn print_human_readable(&self) {
         println!("\n=== RustDesk 运行状态 ===");
-        println!("版本: {} ({})\n", crate::VERSION, crate::BUILD_DATE);
+        println!("CLI 版本: {} ({})\n", crate::VERSION, crate::BUILD_DATE);
 
         // Service status
         println!("[服务状态]");
@@ -190,7 +195,44 @@ impl StatusReport {
         if self.service.unattended_mode {
             println!("  ✓ 无人值守模式已激活");
         } else {
-            println!("  ○ 无人值守模式未激活");
+            println!("  ✗ 无人值守模式未激活");
+        }
+
+        // Listening ports
+        if !self.service.listening_ports.is_empty() {
+            print!("  监听端口: ");
+            let ports_str: Vec<String> = self.service.listening_ports.iter()
+                .map(|p| p.to_string())
+                .collect();
+            println!("{}", ports_str.join(", "));
+        }
+
+        // File information
+        if let Some(ref exe_path) = self.service.exe_path {
+            println!("\n[服务进程文件信息]");
+            println!("  路径: {}", exe_path);
+
+            if let Some(ref version) = self.service.version {
+                println!("  版本: {}", version);
+            }
+
+            if let Some(ref build_date) = self.service.build_date {
+                println!("  构建时间: {}", build_date);
+            }
+
+            if let Some(size) = self.service.file_size {
+                let size_kb = size as f64 / 1024.0;
+                let size_mb = size_kb / 1024.0;
+                if size_mb >= 1.0 {
+                    println!("  大小: {:.2} MB ({} bytes)", size_mb, size);
+                } else {
+                    println!("  大小: {:.2} KB ({} bytes)", size_kb, size);
+                }
+            }
+
+            if let Some(ref md5) = self.service.md5 {
+                println!("  MD5: {}", md5);
+            }
         }
 
         // Config status
@@ -294,6 +336,12 @@ impl ServiceStatus {
             uptime_seconds: None,
             autostart_enabled: false,
             unattended_mode: false,
+            exe_path: None,
+            version: None,
+            md5: None,
+            file_size: None,
+            build_date: None,
+            listening_ports: Vec::new(),
         }
     }
 
@@ -311,6 +359,14 @@ impl ServiceStatus {
         // Try to get PID and uptime (platform-specific)
         if self.running {
             self.get_process_info();
+        }
+
+        // Get file information (exe path, version, MD5, size, mtime)
+        self.get_file_info();
+
+        // Get listening ports
+        if let Some(pid) = self.pid {
+            self.listening_ports = self.get_listening_ports(pid);
         }
     }
 
@@ -374,8 +430,65 @@ impl ServiceStatus {
 
     #[cfg(target_os = "windows")]
     fn get_process_info(&mut self) {
-        // TODO: Get Windows service PID and uptime
-        // This requires querying the service manager
+        // Find the --server process (may be a child of service process)
+        if let Some(server_pid) = self.find_server_process() {
+            self.pid = Some(server_pid);
+            self.get_uptime_from_pid(server_pid);
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn find_server_process(&self) -> Option<u32> {
+        use std::process::Command;
+
+        // Use WMIC to find rustdesk.exe processes with --server argument
+        if let Ok(output) = Command::new("wmic")
+            .args(&[
+                "process",
+                "where",
+                "name like '%rustdesk%'",
+                "get",
+                "ProcessId,CommandLine",
+                "/format:csv"
+            ])
+            .output()
+        {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+
+            // Parse CSV output and find process with --server in command line
+            for line in output_str.lines().skip(1) {  // Skip header
+                if line.contains("--server") {
+                    // CSV format: Node,CommandLine,ProcessId
+                    let parts: Vec<&str> = line.split(',').collect();
+                    if parts.len() >= 3 {
+                        if let Ok(pid) = parts[parts.len() - 1].trim().parse::<u32>() {
+                            if pid > 0 {
+                                return Some(pid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: Try using PowerShell
+        if let Ok(output) = Command::new("powershell.exe")
+            .args(&[
+                "-NoProfile",
+                "-Command",
+                "Get-Process | Where-Object {$_.ProcessName -like '*rustdesk*' -and $_.CommandLine -like '*--server*'} | Select-Object -First 1 -ExpandProperty Id"
+            ])
+            .output()
+        {
+            let pid_str = String::from_utf8_lossy(&output.stdout);
+            if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                if pid > 0 {
+                    return Some(pid);
+                }
+            }
+        }
+
+        None
     }
 
     #[cfg(target_os = "macos")]
@@ -410,9 +523,381 @@ impl ServiceStatus {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    fn get_uptime_from_pid(&mut self, pid: u32) {
+        use winapi::um::processthreadsapi::OpenProcess;
+        use winapi::um::processthreadsapi::GetProcessTimes;
+        use winapi::um::winnt::PROCESS_QUERY_INFORMATION;
+        use winapi::um::handleapi::CloseHandle;
+        use winapi::shared::minwindef::FILETIME;
+        use std::time::SystemTime;
+
+        unsafe {
+            let process_handle = OpenProcess(PROCESS_QUERY_INFORMATION, 0, pid);
+            if process_handle.is_null() {
+                return;
+            }
+
+            let mut creation_time = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let mut exit_time = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let mut kernel_time = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+            let mut user_time = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+
+            if GetProcessTimes(
+                process_handle,
+                &mut creation_time,
+                &mut exit_time,
+                &mut kernel_time,
+                &mut user_time,
+            ) != 0 {
+                // Convert FILETIME to seconds since epoch
+                let creation_timestamp = ((creation_time.dwHighDateTime as u64) << 32)
+                    | (creation_time.dwLowDateTime as u64);
+
+                // FILETIME is in 100-nanosecond intervals since January 1, 1601
+                // Convert to seconds since UNIX epoch (January 1, 1970)
+                let windows_epoch_diff = 11644473600u64; // seconds between 1601 and 1970
+                let creation_secs = creation_timestamp / 10_000_000 - windows_epoch_diff;
+
+                if let Ok(now) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                    let now_secs = now.as_secs();
+                    if now_secs > creation_secs {
+                        self.uptime_seconds = Some(now_secs - creation_secs);
+                    }
+                }
+            }
+
+            CloseHandle(process_handle);
+        }
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     fn get_uptime_from_pid(&mut self, _pid: u32) {
-        // Not implemented for non-Linux platforms
+        // Not implemented for non-Linux/Windows platforms
+    }
+
+    fn get_file_info(&mut self) {
+        use std::fs;
+        use std::time::SystemTime;
+
+        // Only get file info if we have a PID (service is running)
+        // Do NOT use current process path as fallback
+        let exe_path = if let Some(pid) = self.pid {
+            self.get_exe_path_from_pid(pid)
+        } else {
+            None  // Service not running, leave all fields as None
+        };
+
+        if let Some(ref path) = exe_path {
+            self.exe_path = Some(path.clone());
+
+            // Get version from executable file
+            self.version = self.get_version_from_exe(path);
+
+            // Get build date from executable (using --build-date)
+            self.build_date = self.get_build_date_from_exe(path);
+
+            // Get file metadata
+            if let Ok(metadata) = fs::metadata(path) {
+                // File size
+                self.file_size = Some(metadata.len());
+            }
+
+            // Calculate MD5 hash
+            self.md5 = self.calculate_md5(path);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn get_exe_path_from_pid(&self, pid: u32) -> Option<String> {
+        std::fs::read_link(format!("/proc/{}/exe", pid))
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_exe_path_from_pid(&self, pid: u32) -> Option<String> {
+        use std::os::windows::ffi::OsStringExt;
+        use std::ffi::OsString;
+        use winapi::um::processthreadsapi::OpenProcess;
+        use winapi::um::psapi::GetModuleFileNameExW;
+        use winapi::um::winnt::PROCESS_QUERY_INFORMATION;
+        use winapi::um::winnt::PROCESS_VM_READ;
+        use winapi::um::handleapi::CloseHandle;
+
+        unsafe {
+            let process_handle = OpenProcess(
+                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+                0,
+                pid,
+            );
+
+            if process_handle.is_null() {
+                return None;
+            }
+
+            let mut buffer: [u16; 1024] = [0; 1024];
+            let len = GetModuleFileNameExW(
+                process_handle,
+                std::ptr::null_mut(),
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+            );
+
+            CloseHandle(process_handle);
+
+            if len > 0 {
+                let os_string = OsString::from_wide(&buffer[..len as usize]);
+                os_string.to_str().map(|s| s.to_string())
+            } else {
+                None
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn get_exe_path_from_pid(&self, pid: u32) -> Option<String> {
+        use std::process::Command;
+
+        // Use ps to get executable path
+        if let Ok(output) = Command::new("ps")
+            .args(&["-p", &pid.to_string(), "-o", "comm="])
+            .output()
+        {
+            let path = String::from_utf8_lossy(&output.stdout);
+            let trimmed = path.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+        None
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_version_from_exe(&self, path: &str) -> Option<String> {
+        // Try to get version from Windows PE version info
+        use std::process::Command;
+
+        // Method 1: Try running the executable with --version
+        if let Ok(output) = Command::new(path)
+            .arg("--version")
+            .output()
+        {
+            let version_str = String::from_utf8_lossy(&output.stdout);
+            let version = version_str.trim();
+            if !version.is_empty() && version.len() < 100 {
+                return Some(version.to_string());
+            }
+        }
+
+        // Method 2: Try using PowerShell to get file version
+        if let Ok(output) = Command::new("powershell.exe")
+            .args(&[
+                "-NoProfile",
+                "-Command",
+                &format!("(Get-Item '{}').VersionInfo.FileVersion", path)
+            ])
+            .output()
+        {
+            let version_str = String::from_utf8_lossy(&output.stdout);
+            let version = version_str.trim();
+            if !version.is_empty() && version != "0.0.0.0" {
+                return Some(version.to_string());
+            }
+        }
+
+        None
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn get_version_from_exe(&self, path: &str) -> Option<String> {
+        use std::process::Command;
+
+        // Try running the executable with --version
+        if let Ok(output) = Command::new(path)
+            .arg("--version")
+            .output()
+        {
+            let version_str = String::from_utf8_lossy(&output.stdout);
+            let version = version_str.trim();
+            if !version.is_empty() && version.len() < 100 {
+                return Some(version.to_string());
+            }
+        }
+
+        None
+    }
+
+    fn get_build_date_from_exe(&self, path: &str) -> Option<String> {
+        use std::process::Command;
+
+        // Try running the executable with --build-date
+        if let Ok(output) = Command::new(path)
+            .arg("--build-date")
+            .output()
+        {
+            let build_date_str = String::from_utf8_lossy(&output.stdout);
+            let build_date = build_date_str.trim();
+            if !build_date.is_empty() && build_date.len() < 100 {
+                return Some(build_date.to_string());
+            }
+        }
+
+        None
+    }
+
+    fn calculate_md5(&self, path: &str) -> Option<String> {
+        use std::fs::File;
+        use std::io::Read;
+
+        let mut file = File::open(path).ok()?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).ok()?;
+
+        let digest = md5::compute(&buffer);
+        Some(format!("{:x}", digest))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn get_listening_ports(&self, pid: u32) -> Vec<u16> {
+        use std::process::Command;
+
+        let mut ports = Vec::new();
+
+        // Use netstat to find listening ports for this PID
+        if let Ok(output) = Command::new("netstat")
+            .args(&["-ano", "-p", "TCP"])
+            .output()
+        {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let pid_str = pid.to_string();
+
+            for line in output_str.lines() {
+                // Look for LISTENING state and matching PID
+                if line.contains("LISTENING") && line.contains(&pid_str) {
+                    // Parse the local address column
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 5 {
+                        // Local address is typically in format IP:PORT
+                        if let Some(addr_part) = parts.get(1) {
+                            if let Some(port_str) = addr_part.split(':').last() {
+                                if let Ok(port) = port_str.parse::<u16>() {
+                                    if !ports.contains(&port) {
+                                        ports.push(port);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ports.sort();
+        ports
+    }
+
+    #[cfg(target_os = "linux")]
+    fn get_listening_ports(&self, pid: u32) -> Vec<u16> {
+        use std::fs;
+
+        let mut ports = Vec::new();
+
+        // Read /proc/net/tcp and /proc/net/tcp6
+        for tcp_file in &["/proc/net/tcp", "/proc/net/tcp6"] {
+            if let Ok(content) = fs::read_to_string(tcp_file) {
+                for line in content.lines().skip(1) {  // Skip header
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 10 {
+                        // Check if state is LISTEN (0A in hex)
+                        if parts[3] == "0A" {
+                            // Get inode
+                            if let Ok(inode) = parts[9].parse::<u64>() {
+                                // Check if this inode belongs to our PID
+                                if self.check_inode_belongs_to_pid(pid, inode) {
+                                    // Parse local address (format: XXXXXXXX:PPPP)
+                                    if let Some(addr_part) = parts.get(1) {
+                                        if let Some(port_hex) = addr_part.split(':').nth(1) {
+                                            if let Ok(port) = u16::from_str_radix(port_hex, 16) {
+                                                if !ports.contains(&port) {
+                                                    ports.push(port);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ports.sort();
+        ports
+    }
+
+    #[cfg(target_os = "linux")]
+    fn check_inode_belongs_to_pid(&self, pid: u32, inode: u64) -> bool {
+        use std::fs;
+        use std::path::Path;
+
+        let fd_path = format!("/proc/{}/fd", pid);
+        if let Ok(entries) = fs::read_dir(&fd_path) {
+            for entry in entries.flatten() {
+                if let Ok(link) = fs::read_link(entry.path()) {
+                    let link_str = link.to_string_lossy();
+                    if link_str.contains(&format!("socket:[{}]", inode)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    #[cfg(target_os = "macos")]
+    fn get_listening_ports(&self, pid: u32) -> Vec<u16> {
+        use std::process::Command;
+
+        let mut ports = Vec::new();
+
+        // Use lsof to find listening ports for this PID
+        if let Ok(output) = Command::new("lsof")
+            .args(&[
+                "-Pan",
+                "-p", &pid.to_string(),
+                "-i", "TCP",
+                "-sTCP:LISTEN"
+            ])
+            .output()
+        {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+
+            for line in output_str.lines().skip(1) {  // Skip header
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 9 {
+                    // Name column typically contains address:port
+                    if let Some(name_part) = parts.get(8) {
+                        if let Some(port_str) = name_part.split(':').last() {
+                            if let Ok(port) = port_str.parse::<u16>() {
+                                if !ports.contains(&port) {
+                                    ports.push(port);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ports.sort();
+        ports
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    fn get_listening_ports(&self, _pid: u32) -> Vec<u16> {
+        Vec::new()
     }
 }
 
@@ -430,12 +915,15 @@ impl ConfigStatus {
     }
 
     fn check(&mut self) {
-        self.approve_mode = Config::get_option("approve-mode");
+        // Get options from IPC (same as --list-options) for consistency
+        let options = crate::ipc::get_options();
+
+        self.approve_mode = options.get("approve-mode").unwrap_or(&"".to_string()).clone();
         if self.approve_mode.is_empty() {
             self.approve_mode = "click".to_string(); // default
         }
 
-        self.verification_method = Config::get_option("verification-method");
+        self.verification_method = options.get("verification-method").unwrap_or(&"".to_string()).clone();
         if self.verification_method.is_empty() {
             self.verification_method = "use-both".to_string(); // default
         }
@@ -446,7 +934,7 @@ impl ConfigStatus {
         // Check hide CM option
         self.allow_hide_cm = hbb_common::config::option2bool(
             "allow-hide-cm",
-            &Config::get_option("allow-hide-cm")
+            options.get("allow-hide-cm").unwrap_or(&"".to_string())
         );
 
         self.hide_cm = self.approve_mode == "password"
@@ -456,13 +944,13 @@ impl ConfigStatus {
         // Check logon screen password option
         self.allow_logon_screen = hbb_common::config::option2bool(
             "allow-logon-screen-password",
-            &Config::get_option("allow-logon-screen-password")
+            options.get("allow-logon-screen-password").unwrap_or(&"".to_string())
         );
 
         // Check IP direct access option
         self.direct_server = hbb_common::config::option2bool(
             "direct-server",
-            &Config::get_option("direct-server")
+            options.get("direct-server").unwrap_or(&"".to_string())
         );
     }
 }
