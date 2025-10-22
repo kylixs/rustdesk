@@ -87,6 +87,7 @@ zip = "0.6"
 shutdown_hooks = "0.1"
 totp-rs = { version = "5.4", default-features = false, features = ["gen_secret", "otpauth"] }
 stunclient = "0.4"
+md5 = "0.7"
 kcp-sys= { git = "https://github.com/rustdesk-org/kcp-sys"}
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 # https://github.com/rustdesk/rustdesk/discussions/10197, not use cpal on linux
@@ -140,7 +141,6 @@ impersonate_system = { git = "https://github.com/rustdesk-org/impersonate-system
 shared_memory = "0.12"
 tauri-winrt-notification = "0.1"
 runas = "1.2"
-md5 = "0.7"
 dirs = "5.0"
 rustdesk-portable-packer = { path = "libs/portable" }
 
