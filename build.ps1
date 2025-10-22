@@ -138,32 +138,35 @@ function Test-VersionFormat {
     return $true
 }
 
-# 环境变量默认值设置
-if ($null -eq $env:BUILD_VERSION) {
-    $env:BUILD_VERSION = Get-CargoVersion
+# 读取配置值到脚本局部变量（不修改环境变量）
+# 优先级：命令行参数 > 环境变量 > 默认值
+$script:BUILD_VERSION = if ($Version) {
+    $Version
+} elseif ($env:BUILD_VERSION) {
+    $env:BUILD_VERSION
+} else {
+    Get-CargoVersion
 }
-if ($null -eq $env:VCPKG_ROOT) { $env:VCPKG_ROOT = "C:\vcpkg" }
-if ($null -eq $env:VCPKG_DEFAULT_HOST_TRIPLET) { $env:VCPKG_DEFAULT_HOST_TRIPLET = "x64-windows-static" }
-if ($null -eq $env:BROTLI_COMPRESSION_LEVEL) { $env:BROTLI_COMPRESSION_LEVEL = "6" }
 
-# 构建步骤环境变量默认值（外部设置的环境变量会覆盖这些默认值）
-if ($null -eq $env:BUILD_BRIDGE) { $env:BUILD_BRIDGE = "N" }
-if ($null -eq $env:BUILD_TOPMOST) { $env:BUILD_TOPMOST = "N" }
-if ($null -eq $env:BUILD_RUSTDESK) { $env:BUILD_RUSTDESK = "Y" }
-if ($null -eq $env:BUILD_DRIVERS) { $env:BUILD_DRIVERS = "N" }
-if ($null -eq $env:BUILD_PORTABLE) { $env:BUILD_PORTABLE = "Y" }
-if ($null -eq $env:BUILD_MSI) { $env:BUILD_MSI = "N" }
+$script:VCPKG_ROOT = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { "C:\vcpkg" }
+$script:VCPKG_DEFAULT_HOST_TRIPLET = if ($env:VCPKG_DEFAULT_HOST_TRIPLET) { $env:VCPKG_DEFAULT_HOST_TRIPLET } else { "x64-windows-static" }
+$script:BROTLI_COMPRESSION_LEVEL = if ($env:BROTLI_COMPRESSION_LEVEL) { $env:BROTLI_COMPRESSION_LEVEL } else { "6" }
 
-# 如果命令行指定了版本号，覆盖环境变量
-if ($Version) { $env:BUILD_VERSION = $Version }
+# 构建步骤配置（脚本局部变量）
+$script:BUILD_BRIDGE = if ($env:BUILD_BRIDGE) { $env:BUILD_BRIDGE } else { "N" }
+$script:BUILD_TOPMOST = if ($env:BUILD_TOPMOST) { $env:BUILD_TOPMOST } else { "N" }
+$script:BUILD_RUSTDESK = if ($env:BUILD_RUSTDESK) { $env:BUILD_RUSTDESK } else { "Y" }
+$script:BUILD_DRIVERS = if ($env:BUILD_DRIVERS) { $env:BUILD_DRIVERS } else { "N" }
+$script:BUILD_PORTABLE = if ($env:BUILD_PORTABLE) { $env:BUILD_PORTABLE } else { "Y" }
+$script:BUILD_MSI = if ($env:BUILD_MSI) { $env:BUILD_MSI } else { "N" }
 
 # 验证版本号格式
 Write-Info "验证版本号格式..."
-if (-not (Test-VersionFormat -Version $env:BUILD_VERSION)) {
+if (-not (Test-VersionFormat -Version $script:BUILD_VERSION)) {
     Write-Error "构建失败: 版本号格式验证不通过"
     exit 1
 }
-Write-Success "版本号格式验证通过: $($env:BUILD_VERSION)"
+Write-Success "版本号格式验证通过: $($script:BUILD_VERSION)"
 
 # 步骤控制：优先级为 -All > 命令行参数 > 环境变量 > 默认值
 function Get-StepEnabled {
@@ -205,8 +208,8 @@ $BuildFlutter = $true
 $BuildVram = -not $NoVram
 
 Write-Section "RustDesk Windows Flutter 构建脚本"
-Write-Info "版本: $($env:BUILD_VERSION)"
-Write-Info "vcpkg Root: $($env:VCPKG_ROOT)"
+Write-Info "版本: $($script:BUILD_VERSION)"
+Write-Info "vcpkg Root: $($script:VCPKG_ROOT)"
 
 Write-Info "构建配置:"
 Write-Host "  Flutter UI: $BuildFlutter"
@@ -496,12 +499,12 @@ if ($EnablePortable) {
     Push-Location libs\portable
     pip install -r requirements.txt --quiet
 
-    Write-Info "生成自解压打包器... (压缩级别: $($env:BROTLI_COMPRESSION_LEVEL))"
+    Write-Info "生成自解压打包器... (压缩级别: $($script:BROTLI_COMPRESSION_LEVEL))"
     python generate.py `
         -f ..\..\rustdesk\ `
         -o . `
         -e ..\..\rustdesk\rustdesk.exe `
-        -l $env:BROTLI_COMPRESSION_LEVEL
+        -l $script:BROTLI_COMPRESSION_LEVEL
 
     Pop-Location
 
@@ -510,10 +513,10 @@ if ($EnablePortable) {
 
     # 移动生成的 EXE
     Write-Info "移动可执行文件..."
-    Move-Item .\target\release\rustdesk-portable-packer.exe .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe -Force
+    Move-Item .\target\release\rustdesk-portable-packer.exe .\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.exe -Force
 
-    $ExeSize = (Get-Item .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe).Length / 1MB
-    Write-Success "自解压可执行文件已生成: rustdesk-$($env:BUILD_VERSION)-x86_64.exe ($([math]::Round($ExeSize, 2)) MB)"
+    $ExeSize = (Get-Item .\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.exe).Length / 1MB
+    Write-Success "自解压可执行文件已生成: rustdesk-$($script:BUILD_VERSION)-x86_64.exe ($([math]::Round($ExeSize, 2)) MB)"
 } else {
     Write-Warning "跳过 Portable 自解压程序生成"
 }
@@ -563,15 +566,15 @@ if ($EnableMSI) {
         /p:TargetVersion=Windows10
 
     Write-Info "移动 MSI 文件..."
-    Move-Item .\Package\bin\x64\Release\en-us\Package.msi ..\..\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi -Force
+    Move-Item .\Package\bin\x64\Release\en-us\Package.msi ..\..\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.msi -Force
 
     Pop-Location
 
-    $MsiSize = (Get-Item .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi).Length / 1MB
-    Write-Success "MSI 安装包已生成: rustdesk-$($env:BUILD_VERSION)-x86_64.msi ($([math]::Round($MsiSize, 2)) MB)"
+    $MsiSize = (Get-Item .\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.msi).Length / 1MB
+    Write-Success "MSI 安装包已生成: rustdesk-$($script:BUILD_VERSION)-x86_64.msi ($([math]::Round($MsiSize, 2)) MB)"
 
     Write-Info "生成 SHA256 校验和..."
-    Get-FileHash .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi -Algorithm SHA256 | Format-List
+    Get-FileHash .\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.msi -Algorithm SHA256 | Format-List
 } else {
     Write-Warning "跳过 MSI 安装包构建"
 }
@@ -583,14 +586,14 @@ Write-Success "RustDesk 构建成功完成!"
 Write-Host ""
 Write-Info "输出文件:"
 
-if (Test-Path ".\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe") {
-    $ExeSize = (Get-Item ".\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe").Length / 1MB
-    Write-Host "  - rustdesk-$($env:BUILD_VERSION)-x86_64.exe ($([math]::Round($ExeSize, 2)) MB)"
+if (Test-Path ".\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.exe") {
+    $ExeSize = (Get-Item ".\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.exe").Length / 1MB
+    Write-Host "  - rustdesk-$($script:BUILD_VERSION)-x86_64.exe ($([math]::Round($ExeSize, 2)) MB)"
 }
 
-if (Test-Path ".\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi") {
-    $MsiSize = (Get-Item ".\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi").Length / 1MB
-    Write-Host "  - rustdesk-$($env:BUILD_VERSION)-x86_64.msi ($([math]::Round($MsiSize, 2)) MB)"
+if (Test-Path ".\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.msi") {
+    $MsiSize = (Get-Item ".\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.msi").Length / 1MB
+    Write-Host "  - rustdesk-$($script:BUILD_VERSION)-x86_64.msi ($([math]::Round($MsiSize, 2)) MB)"
 }
 
 Write-Host ""
@@ -612,8 +615,8 @@ Write-Host "  - 测试前请确保关闭正在运行的 RustDesk 实例"
 Write-Host ""
 
 Write-Info "下一步:"
-Write-Host "  1. 测试可执行文件: .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.exe"
-Write-Host "  2. 安装 MSI 包测试: .\SignOutput\rustdesk-$($env:BUILD_VERSION)-x86_64.msi"
+Write-Host "  1. 测试可执行文件: .\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.exe"
+Write-Host "  2. 安装 MSI 包测试: .\SignOutput\rustdesk-$($script:BUILD_VERSION)-x86_64.msi"
 Write-Host "  3. 查看构建日志排查问题"
 Write-Host ""
 
