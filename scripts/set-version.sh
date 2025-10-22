@@ -264,10 +264,25 @@ if [ -f "$PORTABLE_CARGO" ]; then
 fi
 
 # Update package spec files
+# Split version into base version and release suffix
+# E.g., 1.4.3-jlc15 -> VERSION_BASE=1.4.3, RELEASE_SUFFIX=jlc15
+if [[ "$NEW_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-(.+)$ ]]; then
+    VERSION_BASE="${BASH_REMATCH[1]}"
+    RELEASE_SUFFIX="${BASH_REMATCH[2]}"
+    # Remove +build metadata from release suffix if present (e.g., jlc15+123 -> jlc15)
+    RELEASE_SUFFIX="${RELEASE_SUFFIX%%+*}"
+else
+    VERSION_BASE="$NEW_VERSION"
+    RELEASE_SUFFIX="0"
+fi
+
+echo -e "${CYAN}[INFO] Package version split: Version=$VERSION_BASE, Release=$RELEASE_SUFFIX${NC}"
+
 SPEC_FILES=(
     "./res/PKGBUILD"
     "./res/rpm-flutter-suse.spec"
     "./res/rpm-flutter.spec"
+    "./res/rpm-suse.spec"
     "./res/rpm.spec"
 )
 
@@ -276,15 +291,20 @@ for SPEC_FILE in "${SPEC_FILES[@]}"; do
         # Create backup
         cp "$SPEC_FILE" "$SPEC_FILE.bak"
 
-        # Simple replacement: match entire version line and replace
-        sed_inplace 's|^pkgver=.*|pkgver='"$NEW_VERSION"'|' "$SPEC_FILE"
-        sed_inplace 's|^Version: .*|Version:    '"$NEW_VERSION"'|' "$SPEC_FILE"
+        # Update version and release fields separately
+        # For PKGBUILD: pkgver and pkgrel
+        sed_inplace 's|^pkgver=.*|pkgver='"$VERSION_BASE"'|' "$SPEC_FILE"
+        sed_inplace 's|^pkgrel=.*|pkgrel='"$RELEASE_SUFFIX"'|' "$SPEC_FILE"
+
+        # For RPM spec: Version and Release
+        sed_inplace 's|^Version: .*|Version:    '"$VERSION_BASE"'|' "$SPEC_FILE"
+        sed_inplace 's|^Release: .*|Release:    '"$RELEASE_SUFFIX"'|' "$SPEC_FILE"
 
         # Check if file was changed
         if ! diff -q "$SPEC_FILE" "$SPEC_FILE.bak" > /dev/null 2>&1; then
             CHANGE_COUNT=$((CHANGE_COUNT + 1))
             FILE_NAME=$(basename "$SPEC_FILE")
-            echo -e "${GREEN}[OK] Updated $FILE_NAME version = \"$NEW_VERSION\"${NC}"
+            echo -e "${GREEN}[OK] Updated $FILE_NAME (Version: $VERSION_BASE, Release: $RELEASE_SUFFIX)${NC}"
         fi
 
         # Clean up backup

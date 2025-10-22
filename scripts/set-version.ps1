@@ -213,10 +213,25 @@ if (Test-Path $portableCargo) {
 }
 
 # Update package spec files
+# Split version into base version and release suffix
+# E.g., 1.4.3-jlc15 -> versionBase=1.4.3, releaseSuffix=jlc15
+if ($NewVersion -match '^(\d+\.\d+\.\d+)-(.+)$') {
+    $versionBase = $Matches[1]
+    $releaseSuffix = $Matches[2]
+    # Remove +build metadata from release suffix if present (e.g., jlc15+123 -> jlc15)
+    $releaseSuffix = $releaseSuffix -replace '\+.*$', ''
+} else {
+    $versionBase = $NewVersion
+    $releaseSuffix = "0"
+}
+
+Write-Host "[INFO] Package version split: Version=$versionBase, Release=$releaseSuffix" -ForegroundColor Cyan
+
 $specFiles = @(
     ".\res\PKGBUILD",
     ".\res\rpm-flutter-suse.spec",
     ".\res\rpm-flutter.spec",
+    ".\res\rpm-suse.spec",
     ".\res\rpm.spec"
 )
 
@@ -225,15 +240,28 @@ foreach ($specFile in $specFiles) {
         $specContent = Get-Content $specFile -Raw
         $specChanged = $false
 
-        # Update pkgver= pattern - simple replacement
-        $newSpecContent = $specContent -replace '(?m)^pkgver=.*$', "pkgver=$NewVersion"
+        # Update version and release fields separately
+        # For PKGBUILD: pkgver and pkgrel
+        $newSpecContent = $specContent -replace '(?m)^pkgver=.*$', "pkgver=$versionBase"
         if ($newSpecContent -ne $specContent) {
             $specChanged = $true
             $specContent = $newSpecContent
         }
 
-        # Update Version: pattern - simple replacement
-        $newSpecContent = $specContent -replace '(?m)^Version: .*$', "Version:    $NewVersion"
+        $newSpecContent = $specContent -replace '(?m)^pkgrel=.*$', "pkgrel=$releaseSuffix"
+        if ($newSpecContent -ne $specContent) {
+            $specChanged = $true
+            $specContent = $newSpecContent
+        }
+
+        # For RPM spec: Version and Release
+        $newSpecContent = $specContent -replace '(?m)^Version: .*$', "Version:    $versionBase"
+        if ($newSpecContent -ne $specContent) {
+            $specChanged = $true
+            $specContent = $newSpecContent
+        }
+
+        $newSpecContent = $specContent -replace '(?m)^Release: .*$', "Release:    $releaseSuffix"
         if ($newSpecContent -ne $specContent) {
             $specChanged = $true
             $specContent = $newSpecContent
@@ -243,7 +271,7 @@ foreach ($specFile in $specFiles) {
             $specContent | Set-Content $specFile -NoNewline
             $changeCount++
             $fileName = Split-Path $specFile -Leaf
-            Write-Host "[OK] Updated $fileName version = `"$NewVersion`"" -ForegroundColor Green
+            Write-Host "[OK] Updated $fileName (Version: $versionBase, Release: $releaseSuffix)" -ForegroundColor Green
         }
     }
 }
