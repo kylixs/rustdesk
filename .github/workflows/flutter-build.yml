@@ -779,7 +779,10 @@ jobs:
         with:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
-          files: ./*
+          files: |
+            ./*.exe
+            ./*.msi
+            ./*.zip
 
   # publish_unsigned_windows_x86:
   #   needs:
@@ -1571,10 +1574,10 @@ jobs:
             export CARGO_INCREMENTAL=0
             export DEB_ARCH=${{ matrix.job.deb_arch }}
             python3 ./build.py --flutter --skip-cargo
-            for name in rustdesk*??.deb; do
-              mv "$name" "${name%%.deb}-${{ matrix.job.arch }}.deb"
-            done
-
+            # build.py now generates standard Debian naming: rustdesk_{version}_{deb_arch}.deb
+            # for name in rustdesk*??.deb; do
+            #   mv "$name" "${name%%.deb}-${{ matrix.job.arch }}.deb"
+            # done
             # rpm package
             echo -e "start packaging fedora package"
             pushd /workspace
@@ -1585,8 +1588,9 @@ jobs:
             esac
             HBB=`pwd` rpmbuild ./res/rpm-flutter.spec -bb
             pushd ~/rpmbuild/RPMS/${{ matrix.job.arch }}
-            for name in rustdesk*??.rpm; do
-                mv "$name" /workspace/"${name%%.rpm}.rpm"
+            # Keep standard RPM naming: rustdesk-{version}-{release}.{dist}.{arch}.rpm
+            for name in rustdesk*.rpm; do
+                mv "$name" /workspace/"$name"
             done
 
             # rpm suse package
@@ -1599,8 +1603,9 @@ jobs:
             esac
             HBB=`pwd` rpmbuild ./res/rpm-flutter-suse.spec -bb
             pushd ~/rpmbuild/RPMS/${{ matrix.job.arch }}
-            for name in rustdesk*??.rpm; do
-                mv "$name" /workspace/"${name%%.rpm}-suse.rpm"
+            # Keep standard RPM naming and add -suse suffix before .rpm
+            for name in rustdesk*.rpm; do
+                mv "$name" /workspace/"${name%.rpm}-suse.rpm"
             done
 
       - name: Publish debian/rpm package
@@ -1610,15 +1615,15 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           files: |
-            rustdesk-*.deb
+            rustdesk_*.deb
             rustdesk-*.rpm
 
       - name: Upload deb
         uses: actions/upload-artifact@master
         if: env.UPLOAD_ARTIFACT == 'true'
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
-          path: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
+          name: rustdesk_${{ env.VERSION }}_${{ matrix.job.deb_arch }}.deb
+          path: rustdesk_${{ env.VERSION }}_${{ matrix.job.deb_arch }}.deb
 
       # only x86_64 for arch since we can not find newest arm64 docker image to build
       # old arch image does not make sense for arch since it is "arch" which always update to date
@@ -1884,8 +1889,8 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          - { target: x86_64-unknown-linux-gnu, arch: x86_64 }
-          - { target: aarch64-unknown-linux-gnu, arch: aarch64 }
+          - { target: x86_64-unknown-linux-gnu, arch: x86_64, deb_arch: amd64 }
+          - { target: aarch64-unknown-linux-gnu, arch: aarch64, deb_arch: arm64 }
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
@@ -1895,12 +1900,12 @@ jobs:
       - name: Download Binary
         uses: actions/download-artifact@master
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
+          name: rustdesk_${{ env.VERSION }}_${{ matrix.job.deb_arch }}.deb
           path: .
 
       - name: Rename Binary
         run: |
-          mv rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.deb appimage/rustdesk.deb
+          mv rustdesk_${{ env.VERSION }}_${{ matrix.job.deb_arch }}.deb appimage/rustdesk.deb
 
       - name: Build appimage package
         shell: bash
@@ -1942,6 +1947,7 @@ jobs:
               distro: ubuntu22.04,
               on: ubuntu-22.04,
               arch: x86_64,
+              deb_arch: amd64,
               suffix: "",
             }
           # - {
@@ -1949,6 +1955,7 @@ jobs:
           #     distro: ubuntu22.04,
           #     on: ubuntu-22.04,
           #     arch: x86_64,
+          #     deb_arch: amd64,
           #     suffix: "-sciter",
           #   }
           - {
@@ -1957,6 +1964,7 @@ jobs:
               distro: ubuntu22.04,
               on: ubuntu-22.04-arm,
               arch: aarch64,
+              deb_arch: arm64,
               suffix: "",
             }
     steps:
@@ -1968,12 +1976,12 @@ jobs:
       - name: Download Binary
         uses: actions/download-artifact@master
         with:
-          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.deb
+          name: rustdesk_${{ env.VERSION }}_${{ matrix.job.deb_arch }}.deb
           path: .
 
       - name: Rename Binary
         run: |
-          mv rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.deb flatpak/rustdesk.deb
+          mv rustdesk_${{ env.VERSION }}_${{ matrix.job.deb_arch }}.deb flatpak/rustdesk.deb
 
       - uses: rustdesk-org/run-on-arch-action@amd64-support
         name: Build rustdesk flatpak package for ${{ matrix.job.arch }}

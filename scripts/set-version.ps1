@@ -225,43 +225,63 @@ if ($NewVersion -match '^(\d+\.\d+\.\d+)-(.+)$') {
     $releaseSuffix = "0"
 }
 
-Write-Host "[INFO] Package version split: Version=$versionBase, Release=$releaseSuffix" -ForegroundColor Cyan
+# For PKGBUILD: Convert dash to underscore (1.4.3-jlc15 -> 1.4.3_jlc15)
+# Arch pkgver allows letters, numbers, dot, underscore (not dash)
+# pkgrel must be integer format
+$pkgbuildVersion = $NewVersion -replace '-', '_'
 
-$specFiles = @(
-    ".\res\PKGBUILD",
+Write-Host "[INFO] Package version split:" -ForegroundColor Cyan
+Write-Host "  RPM:  Version=$versionBase, Release=1.$releaseSuffix%{?dist}" -ForegroundColor Cyan
+Write-Host "  Arch: pkgver=$pkgbuildVersion, pkgrel=1" -ForegroundColor Cyan
+
+# Update PKGBUILD (Arch Linux)
+$pkgbuildFile = ".\res\PKGBUILD"
+if (Test-Path $pkgbuildFile) {
+    $pkgbuildContent = Get-Content $pkgbuildFile -Raw
+    $pkgbuildChanged = $false
+
+    # PKGBUILD: Use full version with underscore, pkgrel=1
+    $newContent = $pkgbuildContent -replace '(?m)^pkgver=.*$', "pkgver=$pkgbuildVersion"
+    if ($newContent -ne $pkgbuildContent) {
+        $pkgbuildChanged = $true
+        $pkgbuildContent = $newContent
+    }
+
+    $newContent = $pkgbuildContent -replace '(?m)^pkgrel=.*$', "pkgrel=1"
+    if ($newContent -ne $pkgbuildContent) {
+        $pkgbuildChanged = $true
+        $pkgbuildContent = $newContent
+    }
+
+    if ($pkgbuildChanged) {
+        $pkgbuildContent | Set-Content $pkgbuildFile -NoNewline
+        $changeCount++
+        Write-Host "[OK] Updated PKGBUILD (pkgver: $pkgbuildVersion, pkgrel: 1)" -ForegroundColor Green
+    }
+}
+
+# Update RPM spec files
+$rpmSpecFiles = @(
     ".\res\rpm-flutter-suse.spec",
     ".\res\rpm-flutter.spec",
     ".\res\rpm-suse.spec",
     ".\res\rpm.spec"
 )
 
-foreach ($specFile in $specFiles) {
+foreach ($specFile in $rpmSpecFiles) {
     if (Test-Path $specFile) {
         $specContent = Get-Content $specFile -Raw
         $specChanged = $false
 
-        # Update version and release fields separately
-        # For PKGBUILD: pkgver and pkgrel
-        $newSpecContent = $specContent -replace '(?m)^pkgver=.*$', "pkgver=$versionBase"
-        if ($newSpecContent -ne $specContent) {
-            $specChanged = $true
-            $specContent = $newSpecContent
-        }
-
-        $newSpecContent = $specContent -replace '(?m)^pkgrel=.*$', "pkgrel=$releaseSuffix"
-        if ($newSpecContent -ne $specContent) {
-            $specChanged = $true
-            $specContent = $newSpecContent
-        }
-
-        # For RPM spec: Version and Release
+        # RPM spec: Split version and release
+        # Use format: Release: 1.jlc15%{?dist}
         $newSpecContent = $specContent -replace '(?m)^Version: .*$', "Version:    $versionBase"
         if ($newSpecContent -ne $specContent) {
             $specChanged = $true
             $specContent = $newSpecContent
         }
 
-        $newSpecContent = $specContent -replace '(?m)^Release: .*$', "Release:    $releaseSuffix"
+        $newSpecContent = $specContent -replace '(?m)^Release: .*$', "Release:    1.$releaseSuffix%{?dist}"
         if ($newSpecContent -ne $specContent) {
             $specChanged = $true
             $specContent = $newSpecContent
@@ -271,7 +291,7 @@ foreach ($specFile in $specFiles) {
             $specContent | Set-Content $specFile -NoNewline
             $changeCount++
             $fileName = Split-Path $specFile -Leaf
-            Write-Host "[OK] Updated $fileName (Version: $versionBase, Release: $releaseSuffix)" -ForegroundColor Green
+            Write-Host "[OK] Updated $fileName (Version: $versionBase, Release: 1.$releaseSuffix%{?dist})" -ForegroundColor Green
         }
     }
 }

@@ -276,38 +276,55 @@ else
     RELEASE_SUFFIX="0"
 fi
 
-echo -e "${CYAN}[INFO] Package version split: Version=$VERSION_BASE, Release=$RELEASE_SUFFIX${NC}"
+# For PKGBUILD: Convert dash to underscore (1.4.3-jlc15 -> 1.4.3_jlc15)
+# Arch pkgver allows letters, numbers, dot, underscore (not dash)
+# pkgrel must be integer format
+PKGBUILD_VERSION="${NEW_VERSION//-/_}"
 
-SPEC_FILES=(
-    "./res/PKGBUILD"
+echo -e "${CYAN}[INFO] Package version split:${NC}"
+echo -e "${CYAN}  RPM:  Version=$VERSION_BASE, Release=1.$RELEASE_SUFFIX%{?dist}${NC}"
+echo -e "${CYAN}  Arch: pkgver=$PKGBUILD_VERSION, pkgrel=1${NC}"
+
+# Update PKGBUILD (Arch Linux)
+PKGBUILD_FILE="./res/PKGBUILD"
+if [ -f "$PKGBUILD_FILE" ]; then
+    cp "$PKGBUILD_FILE" "$PKGBUILD_FILE.bak"
+
+    # PKGBUILD: Use full version with underscore, pkgrel=1
+    sed_inplace 's|^pkgver=.*|pkgver='"$PKGBUILD_VERSION"'|' "$PKGBUILD_FILE"
+    sed_inplace 's|^pkgrel=.*|pkgrel=1|' "$PKGBUILD_FILE"
+
+    if ! diff -q "$PKGBUILD_FILE" "$PKGBUILD_FILE.bak" > /dev/null 2>&1; then
+        CHANGE_COUNT=$((CHANGE_COUNT + 1))
+        echo -e "${GREEN}[OK] Updated PKGBUILD (pkgver: $PKGBUILD_VERSION, pkgrel: 1)${NC}"
+    fi
+
+    rm -f "$PKGBUILD_FILE.bak"
+fi
+
+# Update RPM spec files
+RPM_SPEC_FILES=(
     "./res/rpm-flutter-suse.spec"
     "./res/rpm-flutter.spec"
     "./res/rpm-suse.spec"
     "./res/rpm.spec"
 )
 
-for SPEC_FILE in "${SPEC_FILES[@]}"; do
+for SPEC_FILE in "${RPM_SPEC_FILES[@]}"; do
     if [ -f "$SPEC_FILE" ]; then
-        # Create backup
         cp "$SPEC_FILE" "$SPEC_FILE.bak"
 
-        # Update version and release fields separately
-        # For PKGBUILD: pkgver and pkgrel
-        sed_inplace 's|^pkgver=.*|pkgver='"$VERSION_BASE"'|' "$SPEC_FILE"
-        sed_inplace 's|^pkgrel=.*|pkgrel='"$RELEASE_SUFFIX"'|' "$SPEC_FILE"
-
-        # For RPM spec: Version and Release
+        # RPM spec: Split version and release
+        # Use format: Release: 1.jlc15%{?dist}
         sed_inplace 's|^Version: .*|Version:    '"$VERSION_BASE"'|' "$SPEC_FILE"
-        sed_inplace 's|^Release: .*|Release:    '"$RELEASE_SUFFIX"'|' "$SPEC_FILE"
+        sed_inplace 's|^Release: .*|Release:    1.'"$RELEASE_SUFFIX"'%{?dist}|' "$SPEC_FILE"
 
-        # Check if file was changed
         if ! diff -q "$SPEC_FILE" "$SPEC_FILE.bak" > /dev/null 2>&1; then
             CHANGE_COUNT=$((CHANGE_COUNT + 1))
             FILE_NAME=$(basename "$SPEC_FILE")
-            echo -e "${GREEN}[OK] Updated $FILE_NAME (Version: $VERSION_BASE, Release: $RELEASE_SUFFIX)${NC}"
+            echo -e "${GREEN}[OK] Updated $FILE_NAME (Version: $VERSION_BASE, Release: 1.$RELEASE_SUFFIX%{?dist})${NC}"
         fi
 
-        # Clean up backup
         rm -f "$SPEC_FILE.bak"
     fi
 done
