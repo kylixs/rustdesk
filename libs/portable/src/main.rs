@@ -57,6 +57,34 @@ fn get_start_time() -> std::time::Instant {
     *START_TIME.get().expect("START_TIME not initialized")
 }
 
+/// Sanitize command-line arguments for logging by masking sensitive values
+fn sanitize_args(args: &[String]) -> Vec<String> {
+    const SENSITIVE_PARAMS: &[&str] = &[
+        "--password",
+        "--token",
+        "--api-key",
+        "--secret",
+        "--key",
+    ];
+
+    let mut sanitized = Vec::new();
+    let mut mask_next = false;
+
+    for arg in args {
+        if mask_next {
+            sanitized.push("***".to_string());
+            mask_next = false;
+        } else if SENSITIVE_PARAMS.iter().any(|&param| arg == param) {
+            sanitized.push(arg.clone());
+            mask_next = true;
+        } else {
+            sanitized.push(arg.clone());
+        }
+    }
+
+    sanitized
+}
+
 /// Initialize logger with flexi_logger
 fn init_logger() {
     use flexi_logger::*;
@@ -332,7 +360,7 @@ fn handle_verify(args: &Vec<String>) {
 fn execute_cli_mode(path: PathBuf, args: Vec<String>) {
     log::debug!("execute_cli_mode: started");
     log::debug!("execute_cli_mode: path={}", path.display());
-    log::debug!("execute_cli_mode: args={:?}", args);
+    log::debug!("execute_cli_mode: args={:?}", sanitize_args(&args));
 
     // Setup environment
     let exe = std::env::current_exe().unwrap_or_default();
@@ -479,7 +507,7 @@ fn main() {
 
     log::info!("Portable packer started");
     log::info!("exe: {}", arg_exe);
-    log::info!("args: {:?}", args);
+    log::info!("args: {:?}", sanitize_args(&args));
 
     let click_setup = args.is_empty() && arg_exe.to_lowercase().ends_with("install.exe");
     let quick_support = args.is_empty() && arg_exe.to_lowercase().ends_with("qs.exe");
@@ -575,5 +603,63 @@ mod win {
             .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
             .output();
         let _allow_err = std::fs::copy(src, &format!("{}\\{}", dir.to_string_lossy(), tgt));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_args_password() {
+        let args = vec![
+            "--connect".to_string(),
+            "10.49.16.50".to_string(),
+            "--password".to_string(),
+            "jlc@1018".to_string(),
+        ];
+        let sanitized = sanitize_args(&args);
+        assert_eq!(sanitized, vec![
+            "--connect",
+            "10.49.16.50",
+            "--password",
+            "***",
+        ]);
+    }
+
+    #[test]
+    fn test_sanitize_args_token() {
+        let args = vec![
+            "--token".to_string(),
+            "secret123".to_string(),
+            "--api-key".to_string(),
+            "api456".to_string(),
+        ];
+        let sanitized = sanitize_args(&args);
+        assert_eq!(sanitized, vec![
+            "--token",
+            "***",
+            "--api-key",
+            "***",
+        ]);
+    }
+
+    #[test]
+    fn test_sanitize_args_no_sensitive() {
+        let args = vec![
+            "--connect".to_string(),
+            "10.49.16.50".to_string(),
+            "--port".to_string(),
+            "21118".to_string(),
+        ];
+        let sanitized = sanitize_args(&args);
+        assert_eq!(sanitized, args);
+    }
+
+    #[test]
+    fn test_sanitize_args_empty() {
+        let args: Vec<String> = vec![];
+        let sanitized = sanitize_args(&args);
+        assert_eq!(sanitized.len(), 0);
     }
 }
