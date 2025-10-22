@@ -6649,7 +6649,10 @@ name = "rustdesk-portable-packer"
 version = "1.4.3-jlc15"
 dependencies = [
  "brotli",
+ "directories-next",
  "dirs 5.0.1",
+ "flexi_logger",
+ "log",
  "md5",
  "native-windows-gui",
  "win_console",

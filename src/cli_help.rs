@@ -79,6 +79,12 @@ PLATFORM-SPECIFIC (Windows):
     --uninstall-remote-printer     Uninstall remote printer
     --uninstall-cert               Uninstall certificates
 
+PORTABLE PACKER (rustdesk-portable-packer.exe):
+    --verify                       Verify extracted files integrity
+                                   Optional: --quick (skip MD5 check)
+    -v, --verbose                  Enable debug logging
+    -vv                            Enable trace logging (more verbose)
+
 PLUGIN MANAGEMENT (if enabled):
     --plugin-install <ID> [URL]    Install plugin by ID or URL
     --plugin-uninstall <ID>        Uninstall plugin by ID
