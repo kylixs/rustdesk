@@ -2,12 +2,20 @@
 # 基于 .docs/build/Windows_Flutter_Build_Steps.md 和 tasks.md
 
 param(
+    # 启用特定步骤
+    [switch]$Bridge,
+    [switch]$Topmost,
+    [switch]$Drivers,
+    [switch]$MSI,
+    [switch]$Portable,
+    # 跳过特定步骤
     [switch]$SkipBridge,
     [switch]$SkipTopmost,
     [switch]$SkipDrivers,
     [switch]$SkipMSI,
     [switch]$SkipBuild,
     [switch]$SkipPortable,
+    # 其他选项
     [switch]$NoHwcodec,
     [switch]$NoVram,
     [string]$Version,
@@ -53,17 +61,26 @@ if ($Help) {
     Write-Host ""
     Write-Host "用法: .\build.ps1 [选项]"
     Write-Host ""
-    Write-Host "参数:"
+    Write-Host "启用步骤参数 (优先级高于默认值和环境变量):"
+    Write-Host "  -Bridge          启用 Flutter-Rust 桥接代码生成"
+    Write-Host "  -Topmost         启用 TopMostWindow 组件构建"
+    Write-Host "  -Drivers         启用驱动集成"
+    Write-Host "  -MSI             启用 MSI 安装包构建"
+    Write-Host "  -Portable        启用 portable 自解压程序生成"
+    Write-Host ""
+    Write-Host "跳过步骤参数 (优先级最高):"
     Write-Host "  -SkipBridge      跳过 Flutter-Rust 桥接代码生成"
     Write-Host "  -SkipTopmost     跳过 TopMostWindow 组件构建"
     Write-Host "  -SkipDrivers     跳过驱动集成"
     Write-Host "  -SkipMSI         跳过 MSI 安装包构建"
     Write-Host "  -SkipBuild       跳过编译阶段，仅生成最终程序包 (需要已有 rustdesk 目录)"
     Write-Host "  -SkipPortable    跳过生成 portable 自解压程序"
+    Write-Host ""
+    Write-Host "其他参数:"
     Write-Host "  -NoHwcodec       禁用硬件编解码支持"
     Write-Host "  -NoVram          禁用 VRAM 优化"
     Write-Host "  -Version <ver>   指定版本号 (默认: 从 Cargo.toml 读取)"
-    Write-Host "  -All             执行所有步骤（忽略所有环境变量控制）"
+    Write-Host "  -All             执行所有步骤（优先级最高）"
     Write-Host "  -Help            显示此帮助信息"
     Write-Host ""
     Write-Host "环境变量控制:"
@@ -80,11 +97,17 @@ if ($Help) {
     Write-Host "  BUILD_MSI        是否构建 MSI 安装包 (默认: N)"
     Write-Host ""
     Write-Host "示例:"
-    Write-Host "  .\build.ps1                                                  # 执行默认步骤（BUILD_RUSTDESK + BUILD_PORTABLE）"
-    Write-Host "  .\build.ps1 -All                                             # 强制执行所有步骤"
+    Write-Host "  .\build.ps1                          # 执行默认步骤（编译主程序 + 生成便携版）"
+    Write-Host "  .\build.ps1 -All                     # 强制执行所有步骤"
+    Write-Host "  .\build.ps1 -MSI                     # 默认步骤 + 构建 MSI 安装包"
+    Write-Host "  .\build.ps1 -Bridge -Topmost         # 默认步骤 + 生成桥接代码 + 构建 TopMost 组件"
+    Write-Host "  .\build.ps1 -Drivers -MSI            # 默认步骤 + 集成驱动 + 构建 MSI"
+    Write-Host "  .\build.ps1 -SkipPortable            # 仅编译主程序，跳过便携版"
+    Write-Host "  .\build.ps1 -SkipBuild               # 跳过编译，仅打包（需要已有 rustdesk 目录）"
+    Write-Host ""
+    Write-Host "  使用环境变量:"
     Write-Host "  `$env:BUILD_MSI='Y'; .\build.ps1                             # 同时构建 MSI"
     Write-Host "  `$env:BROTLI_COMPRESSION_LEVEL='11'; .\build.ps1             # 使用最高压缩（发布用）"
-    Write-Host "  `$env:BROTLI_COMPRESSION_LEVEL='3'; .\build.ps1              # 使用快速压缩（开发测试用）"
     Write-Host "  `$env:BUILD_BRIDGE='Y'; `$env:BUILD_TOPMOST='Y'; .\build.ps1  # 包含 Bridge 和 TopMost"
     exit 0
 }
@@ -152,14 +175,6 @@ $script:VCPKG_ROOT = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { "C:\vcpkg" 
 $script:VCPKG_DEFAULT_HOST_TRIPLET = if ($env:VCPKG_DEFAULT_HOST_TRIPLET) { $env:VCPKG_DEFAULT_HOST_TRIPLET } else { "x64-windows-static" }
 $script:BROTLI_COMPRESSION_LEVEL = if ($env:BROTLI_COMPRESSION_LEVEL) { $env:BROTLI_COMPRESSION_LEVEL } else { "6" }
 
-# 构建步骤配置（脚本局部变量）
-$script:BUILD_BRIDGE = if ($env:BUILD_BRIDGE) { $env:BUILD_BRIDGE } else { "N" }
-$script:BUILD_TOPMOST = if ($env:BUILD_TOPMOST) { $env:BUILD_TOPMOST } else { "N" }
-$script:BUILD_RUSTDESK = if ($env:BUILD_RUSTDESK) { $env:BUILD_RUSTDESK } else { "Y" }
-$script:BUILD_DRIVERS = if ($env:BUILD_DRIVERS) { $env:BUILD_DRIVERS } else { "N" }
-$script:BUILD_PORTABLE = if ($env:BUILD_PORTABLE) { $env:BUILD_PORTABLE } else { "Y" }
-$script:BUILD_MSI = if ($env:BUILD_MSI) { $env:BUILD_MSI } else { "N" }
-
 # 验证版本号格式
 Write-Info "验证版本号格式..."
 if (-not (Test-VersionFormat -Version $script:BUILD_VERSION)) {
@@ -168,38 +183,58 @@ if (-not (Test-VersionFormat -Version $script:BUILD_VERSION)) {
 }
 Write-Success "版本号格式验证通过: $($script:BUILD_VERSION)"
 
-# 步骤控制：优先级为 -All > 命令行参数 > 环境变量 > 默认值
+# 构建步骤默认值配置（使用 Y/N）
+$DefaultBuildBridge = "N"     # 默认是否生成 Flutter-Rust 桥接代码
+$DefaultBuildTopmost = "N"    # 默认是否构建 TopMostWindow 组件
+$DefaultBuildRustDesk = "Y"   # 默认是否编译 RustDesk 主程序
+$DefaultBuildDrivers = "N"    # 默认是否集成驱动
+$DefaultBuildPortable = "Y"   # 默认是否生成 portable 自解压程序
+$DefaultBuildMSI = "N"        # 默认是否构建 MSI 安装包
+
+# 步骤控制函数
+# 优先级（从高到低）：-All > -SkipXxx > -EnableXxx > 环境变量 > 默认值
 function Get-StepEnabled {
     param(
-        [string]$EnvVarName,
-        [bool]$SkipParam,
-        [bool]$DefaultValue = $true
+        # 参数按优先级顺序排列（从高到低）
+        [bool]$SkipParam,         # 优先级2: -SkipXxx 参数
+        [bool]$EnableParam,       # 优先级3: -EnableXxx 参数
+        [string]$EnvVarName,      # 优先级4: 环境变量名
+        [string]$DefaultValue     # 优先级5: 默认值 (Y/N)
     )
 
+    # 优先级1: -All 参数在调用处处理
     if ($All) {
         return $true
     }
 
+    # 优先级2: -SkipXxx 参数 - 强制跳过该步骤
     if ($SkipParam) {
         return $false
     }
 
-    # 读取环境变量（此时已包含默认值或外部设置的值）
+    # 优先级3: -EnableXxx 参数 - 启用该步骤
+    if ($EnableParam) {
+        return $true
+    }
+
+    # 优先级4: 环境变量 - 支持 Y/N，忽略大小写
     $EnvValue = Get-Item -Path "env:$EnvVarName" -ErrorAction SilentlyContinue
     if ($null -ne $EnvValue) {
-        # 支持 Y/N，忽略大小写
         return $EnvValue.Value.ToUpper() -eq "Y"
     }
 
-    return $DefaultValue
+    # 优先级5: 默认值 - 支持 Y/N，忽略大小写
+    return $DefaultValue.ToUpper() -eq "Y"
 }
 
-$EnableBridge = Get-StepEnabled "BUILD_BRIDGE" $SkipBridge
-$EnableTopmost = Get-StepEnabled "BUILD_TOPMOST" $SkipTopmost
-$EnableBuild = Get-StepEnabled "BUILD_RUSTDESK" $SkipBuild
-$EnableDrivers = Get-StepEnabled "BUILD_DRIVERS" $SkipDrivers
-$EnablePortable = Get-StepEnabled "BUILD_PORTABLE" $SkipPortable
-$EnableMSI = Get-StepEnabled "BUILD_MSI" $SkipMSI
+# 读取各步骤的启用状态
+# 参数顺序：SkipParam, EnableParam, EnvVarName, DefaultValue
+$EnableBridge = Get-StepEnabled $SkipBridge $Bridge "BUILD_BRIDGE" $DefaultBuildBridge
+$EnableTopmost = Get-StepEnabled $SkipTopmost $Topmost "BUILD_TOPMOST" $DefaultBuildTopmost
+$EnableBuild = Get-StepEnabled $SkipBuild $false "BUILD_RUSTDESK" $DefaultBuildRustDesk
+$EnableDrivers = Get-StepEnabled $SkipDrivers $Drivers "BUILD_DRIVERS" $DefaultBuildDrivers
+$EnablePortable = Get-StepEnabled $SkipPortable $Portable "BUILD_PORTABLE" $DefaultBuildPortable
+$EnableMSI = Get-StepEnabled $SkipMSI $MSI "BUILD_MSI" $DefaultBuildMSI
 
 # 构建参数
 $BuildPortable = $true
