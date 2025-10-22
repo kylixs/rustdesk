@@ -1,6 +1,6 @@
 [package]
 name = "rustdesk"
-version = "1.4.3-jlc15"
+version = "1.4.3-jlc16"
 authors = ["rustdesk <info@rustdesk.com>"]
 edition = "2021"
 build= "build.rs"
@@ -10,7 +10,7 @@ rust-version = "1.75"
 
 [workspace.package]
 # set workspace version for modules
-version = "1.4.3-jlc15"
+version = "1.4.3-jlc16"
 
 [lib]
 name = "librustdesk"
