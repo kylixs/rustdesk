@@ -10,6 +10,7 @@ import 'package:flutter_hbb/common/widgets/overlay.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/pages/install_page.dart';
 import 'package:flutter_hbb/desktop/pages/server_page.dart';
+import 'package:flutter_hbb/desktop/pages/desktop_device_management_page.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_file_transfer_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_view_camera_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_port_forward_screen.dart';
@@ -17,6 +18,7 @@ import 'package:flutter_hbb/desktop/screen/desktop_remote_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_terminal_screen.dart';
 import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
 import 'package:flutter_hbb/models/state_model.dart';
+import 'package:flutter_hbb/models/device_list_model.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
@@ -98,6 +100,14 @@ Future<void> main(List<String> args) async {
           argument,
           kAppTypeDesktopTerminal,
         );
+        break;
+      case WindowType.DeviceManagement:
+        desktopType = DesktopType.deviceManagement;
+        runMultiWindow(
+          argument,
+          kAppTypeDesktopDeviceManagement,
+        );
+        break;
       default:
         break;
     }
@@ -106,6 +116,11 @@ Future<void> main(List<String> args) async {
     desktopType = DesktopType.cm;
     await windowManager.ensureInitialized();
     runConnectionManagerScreen();
+  } else if (args.isNotEmpty && args.first == '--devices') {
+    debugPrint("--devices started");
+    desktopType = DesktopType.deviceManagement;
+    await windowManager.ensureInitialized();
+    runDeviceManagementScreen();
   } else if (args.contains('--install')) {
     runInstallPage();
   } else {
@@ -229,6 +244,9 @@ void runMultiWindow(
         params: argument,
       );
       break;
+    case kAppTypeDesktopDeviceManagement:
+      widget = DesktopDeviceManagementPage();
+      break;
     default:
       // no such appType
       exit(0);
@@ -278,6 +296,9 @@ void runMultiWindow(
     case kAppTypeDesktopTerminal:
       await restoreWindowPosition(WindowType.Terminal, windowId: kWindowId!);
       break;
+    case kAppTypeDesktopDeviceManagement:
+      await restoreWindowPosition(WindowType.DeviceManagement, windowId: kWindowId!);
+      break;
     default:
       // no such appType
       exit(0);
@@ -303,6 +324,57 @@ void runConnectionManagerScreen() async {
   setResizable(false);
   // Start the uni links handler and redirect links to Native, not for Flutter.
   listenUniLinks(handleByFlutter: false);
+}
+
+void runDeviceManagementScreen() async {
+  await initEnv(kAppTypeMain);
+
+  // Set input source to "Input source 2" (Flutter keyboard mode) for device management
+  // This ensures keyboard events are properly processed through Flutter's event system
+  await bind.mainSetLocalOption(key: 'input-source', value: 'Input source 2');
+  final currentInputSource = bind.mainGetInputSource();
+
+  // Build app with Provider for DeviceListModel
+  final botToastBuilder = BotToastInit();
+  runApp(RefreshWrapper(
+    builder: (context) => ChangeNotifierProvider(
+      create: (_) => DeviceListModel(),
+      child: GetMaterialApp(
+        navigatorKey: globalKey,
+        debugShowCheckedModeBanner: false,
+        title: 'Device Management',
+        theme: MyTheme.lightTheme,
+        darkTheme: MyTheme.darkTheme,
+        themeMode: MyTheme.currentThemeMode(),
+        home: const DesktopDeviceManagementPage(),
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: supportedLocales,
+        navigatorObservers: [
+          BotToastNavigatorObserver(),
+        ],
+        builder: (context, child) {
+          child = _keepScaleBuilder(context, child);
+          child = botToastBuilder(context, child);
+          return child;
+        },
+      ),
+    ),
+  ));
+
+  // Configure and show the window
+  WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
+    size: Size(1280, 720),
+    center: true,
+  );
+  await windowManager.waitUntilReadyToShow(windowOptions, () async {
+    await windowManager.show();
+    await windowManager.focus();
+    await windowManager.setOpacity(1);
+  });
 }
 
 bool _isCmReadyToShow = false;
@@ -495,6 +567,8 @@ class _AppState extends State<App> with WidgetsBindingObserver {
           ChangeNotifierProvider.value(value: gFFI.cursorModel),
           ChangeNotifierProvider.value(value: gFFI.canvasModel),
           ChangeNotifierProvider.value(value: gFFI.peerTabModel),
+          // Device list model for local device management
+          ChangeNotifierProvider(create: (_) => DeviceListModel()),
         ],
         child: GetMaterialApp(
           navigatorKey: globalKey,

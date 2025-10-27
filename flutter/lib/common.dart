@@ -109,6 +109,7 @@ enum DesktopType {
   terminal,
   cm,
   portForward,
+  deviceManagement,
 }
 
 bool isDoubleEqual(double a, double b) {

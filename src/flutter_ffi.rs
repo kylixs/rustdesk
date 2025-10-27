@@ -2793,3 +2793,90 @@ pub mod server_side {
         jboolean::from(crate::server::is_clipboard_service_ok())
     }
 }
+
+// Device list management FFI functions
+// Note: Conditional compilation is inside the function to avoid duplicate symbol errors with flutter_rust_bridge
+pub fn main_get_device_list() -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        use crate::device_list;
+
+        match device_list::load_device_list() {
+            Ok(config) => {
+                serde_json::to_string(&config).unwrap_or_else(|e| {
+                    log::error!("Failed to serialize device list: {}", e);
+                    "{}".to_string()
+                })
+            }
+            Err(e) => {
+                log::error!("Failed to load device list: {}", e);
+                // Return empty device list config
+                serde_json::to_string(&device_list::DeviceListConfig::default())
+                    .unwrap_or("{}".to_string())
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        log::warn!("Device list is not supported on mobile platforms");
+        "{}".to_string()
+    }
+}
+
+pub fn main_save_device_list(json_str: String) -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        use crate::device_list;
+
+        match serde_json::from_str::<device_list::DeviceListConfig>(&json_str) {
+            Ok(config) => {
+                match device_list::save_device_list(&config) {
+                    Ok(_) => "OK".to_string(),
+                    Err(e) => {
+                        let err_msg = format!("Failed to save device list: {}", e);
+                        log::error!("{}", err_msg);
+                        err_msg
+                    }
+                }
+            }
+            Err(e) => {
+                let err_msg = format!("Invalid JSON format: {}", e);
+                log::error!("{}", err_msg);
+                err_msg
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        log::warn!("Device list is not supported on mobile platforms");
+        "Not supported on mobile platforms".to_string()
+    }
+}
+
+pub fn main_encrypt_password(password: String) -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        use crate::device_list;
+        device_list::encrypt_password(&password)
+    }
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        password
+    }
+}
+
+pub fn main_decrypt_password(encrypted_password: String) -> String {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        use crate::device_list;
+        device_list::decrypt_password(&encrypted_password)
+    }
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        encrypted_password
+    }
+}

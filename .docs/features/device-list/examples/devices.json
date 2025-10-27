@@ -1,0 +1,61 @@
+{
+    "version": "1.0",
+    "default_connection_mode": "id",
+    "devices": [
+        {
+            "name": "Office Desktop",
+            "id": "123456789",
+            "ip": "",
+            "port": 21118,
+            "password": "",
+            "platform": "Windows",
+            "note": "My office desktop computer",
+            "username": "john",
+            "hostname": "OFFICE-PC-01"
+        },
+        {
+            "name": "Home Server",
+            "id": "",
+            "ip": "192.168.1.100",
+            "port": 21118,
+            "password": "",
+            "platform": "Linux",
+            "note": "Home lab server",
+            "username": "admin",
+            "hostname": "HOME-SRV-01"
+        },
+        {
+            "name": "Development VM",
+            "id": "",
+            "ip": "192.168.56.10",
+            "port": 21118,
+            "password": "",
+            "platform": "Linux",
+            "note": "VirtualBox development VM",
+            "username": "developer",
+            "hostname": "DEV-VM-01"
+        },
+        {
+            "name": "Test Mac",
+            "id": "987654321",
+            "ip": "",
+            "port": 21118,
+            "password": "",
+            "platform": "macOS",
+            "note": "Testing environment",
+            "username": "",
+            "hostname": "TEST-MAC"
+        },
+        {
+            "name": "Production Server",
+            "id": "555666777",
+            "ip": "10.0.1.50",
+            "port": 21119,
+            "password": "",
+            "platform": "Linux",
+            "note": "Production database server - use with caution",
+            "username": "postgres",
+            "hostname": "PROD-DB-01"
+        }
+    ]
+}

@@ -89,6 +89,8 @@ totp-rs = { version = "5.4", default-features = false, features = ["gen_secret",
 stunclient = "0.4"
 md5 = "0.7"
 kcp-sys= { git = "https://github.com/rustdesk-org/kcp-sys"}
+csv = "1.3"
+anyhow = "1.0"
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 # https://github.com/rustdesk/rustdesk/discussions/10197, not use cpal on linux
 cpal = { git = "https://github.com/rustdesk-org/cpal", branch = "osx-screencapturekit" }
@@ -228,6 +230,7 @@ os-version = "0.2"
 [dev-dependencies]
 hound = "3.5"
 docopt = "1.1"
+tempfile = "3.8"
 
 [package.metadata.bundle]
 name = "RustDesk"

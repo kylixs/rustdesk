@@ -1,0 +1,6 @@
+name,id,ip,port,password,platform,note,username,hostname
+Office Desktop,123456789,,21118,test123,Windows,My office desktop computer,john,OFFICE-PC-01
+Home Server,,192.168.1.100,21118,,Linux,Home lab server,admin,HOME-SRV-01
+Development VM,,192.168.56.10,21118,devpass,Linux,VirtualBox development VM,developer,DEV-VM-01
+Test Mac,987654321,,21118,,macOS,Testing environment,,TEST-MAC
+Production DB,,10.0.1.50,21119,,Linux,Production database server,postgres,PROD-DB-01

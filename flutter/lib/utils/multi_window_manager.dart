@@ -18,6 +18,7 @@ enum WindowType {
   ViewCamera,
   PortForward,
   Terminal,
+  DeviceManagement,
   Unknown
 }
 
@@ -36,6 +37,8 @@ extension Index on int {
         return WindowType.PortForward;
       case 5:
         return WindowType.Terminal;
+      case 6:
+        return WindowType.DeviceManagement;
       default:
         return WindowType.Unknown;
     }
@@ -65,6 +68,7 @@ class RustDeskMultiWindowManager {
   final List<int> _viewCameraWindows = List.empty(growable: true);
   final List<int> _portForwardWindows = List.empty(growable: true);
   final List<int> _terminalWindows = List.empty(growable: true);
+  final List<int> _deviceManagementWindows = List.empty(growable: true);
 
   moveTabToNewWindow(int windowId, String peerId, String sessionId,
       WindowType windowType) async {
@@ -415,6 +419,8 @@ class RustDeskMultiWindowManager {
         return _portForwardWindows;
       case WindowType.Terminal:
         return _terminalWindows;
+      case WindowType.DeviceManagement:
+        return _deviceManagementWindows;
       case WindowType.Unknown:
         break;
     }
@@ -439,6 +445,10 @@ class RustDeskMultiWindowManager {
         break;
       case WindowType.Terminal:
         _terminalWindows.clear();
+        break;
+      case WindowType.DeviceManagement:
+        _deviceManagementWindows.clear();
+        break;
       case WindowType.Unknown:
         break;
     }

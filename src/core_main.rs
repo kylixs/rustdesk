@@ -472,6 +472,41 @@ pub fn core_main() -> Option<Vec<String>> {
                 import_config(&filepath);
             }
             return None;
+        } else if args[0] == "--import-devices" {
+            // Import devices from JSON or CSV file
+            if args.len() >= 2 {
+                let filepath = &args[1];
+                let verbose = args.contains(&"--verbose".to_string());
+                let quiet = args.contains(&"--quiet".to_string());
+
+                use crate::device_list;
+                match device_list::import_devices(filepath, verbose, quiet) {
+                    Ok(output) => {
+                        if !output.is_empty() {
+                            println!("{}", output);
+                        }
+                        std::process::exit(0);
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                eprintln!("Usage: rustdesk --import-devices <file.json|file.csv> [--verbose|--quiet]");
+                std::process::exit(1);
+            }
+        } else if args[0] == "--devices" {
+            // Launch device management window
+            #[cfg(feature = "flutter")]
+            {
+                flutter_args.push("--devices".to_string());
+            }
+            #[cfg(not(feature = "flutter"))]
+            {
+                eprintln!("Device management window requires Flutter UI");
+                return None;
+            }
         } else if args[0] == "--password" {
             if args.len() == 2 {
                 if crate::platform::is_installed() && is_root() {
