@@ -1812,6 +1812,11 @@ class CanvasModel with ChangeNotifier {
   ScrollStyle _scrollStyle = ScrollStyle.scrollauto;
   ViewStyle _lastViewStyle = ViewStyle.defaultViewStyle();
 
+  // Layout constraints from parent widget (for device management window)
+  // When available, these are used instead of MediaQueryData to get accurate canvas size
+  double? _constraintWidth;
+  double? _constraintHeight;
+
   Timer? _timerMobileFocusCanvasCursor;
 
   // `isMobileCanvasChanged` is used to avoid canvas reset when changing the input method
@@ -1861,6 +1866,15 @@ class CanvasModel with ChangeNotifier {
       isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.bottom : 0;
 
   Size getSize() {
+    // Use layout constraints if available (device management window)
+    // This provides accurate canvas size accounting for device list panel
+    if (_constraintWidth != null && _constraintHeight != null) {
+      double w = _constraintWidth! - leftToEdge - rightToEdge;
+      double h = _constraintHeight! - topToEdge - bottomToEdge;
+      return Size(w < 0 ? 0 : w, h < 0 ? 0 : h);
+    }
+
+    // Fall back to MediaQueryData (normal remote desktop window)
     final mediaData = MediaQueryData.fromView(ui.window);
     final size = mediaData.size;
     // If minimized, w or h may be negative here.
@@ -1884,6 +1898,14 @@ class CanvasModel with ChangeNotifier {
 
   updateSize() => _size = getSize();
 
+  // Update layout constraints from parent widget
+  // This is called from LayoutBuilder in remote_page.dart to provide accurate canvas size
+  // especially important for device management window where canvas doesn't occupy full window
+  void updateConstraints(double width, double height) {
+    _constraintWidth = width;
+    _constraintHeight = height;
+  }
+
   updateViewStyle({refreshMousePos = true, notify = true}) async {
     final style = await bind.sessionGetViewStyle(sessionId: sessionId);
     if (style == null) {
@@ -1900,6 +1922,7 @@ class CanvasModel with ChangeNotifier {
       displayWidth: displayWidth,
       displayHeight: displayHeight,
     );
+
     // If only the Custom scale percent changed, proceed to update even if
     // the basic ViewStyle fields are equal.
     // In Custom scale mode, the scale percent can change independently of the other
@@ -1939,6 +1962,7 @@ class CanvasModel with ChangeNotifier {
     if (_imageOverflow.value != overflow) {
       _imageOverflow.value = overflow;
     }
+
     if (notify) {
       notifyListeners();
     }

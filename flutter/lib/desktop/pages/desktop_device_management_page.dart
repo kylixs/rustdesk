@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_hbb/models/device_list_model.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
+import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/desktop/widgets/device_list_panel.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/desktop/pages/remote_page.dart';
 import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
-import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:get/get.dart';
+import 'package:window_manager/window_manager.dart';
 
 /// Desktop Device Management Page
 /// 设备管理页面 - 独立窗口
@@ -33,6 +34,9 @@ class _DesktopDeviceManagementPageState
   // Maximum number of tabs (8 as per requirements)
   static const int maxTabs = 8;
 
+  // Local state to control UI elements visibility
+  final _showDevicePanel = true.obs;
+
   @override
   void initState() {
     super.initState();
@@ -46,25 +50,47 @@ class _DesktopDeviceManagementPageState
     remoteTabController.onRemoved = (_, id) {
       debugPrint('Closed remote tab: $id');
     };
+
+    // Listen to fullscreen state changes and control window manager
+    // Optimized fullscreen steps to reduce layout changes:
+    // Enter: 1) Fullscreen window first (maximize and move to top-left)
+    //        2) Then hide device panel (one-time UI change)
+    // Exit:  1) Restore window size and position first
+    //        2) Then show device panel (one-time UI change)
+    ever(stateGlobal.fullscreen, (isFullscreen) {
+      if (isFullscreen) {
+        // Step 1: Fullscreen the window (maximize and move to top-left)
+        windowManager.setFullScreen(true);
+        // Step 2: Hide device panel (one-time UI change)
+        _showDevicePanel.value = false;
+      } else {
+        // Step 1: Restore window size and position
+        windowManager.setFullScreen(false);
+        // Step 2: Show device panel (one-time UI change)
+        _showDevicePanel.value = true;
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
-      body: Column(
+      body: Obx(() => Column(
+        mainAxisSize: MainAxisSize.max,
         children: [
-          // Remote desktop tabs area (takes remaining space)
+          // Remote desktop tabs area - uses Expanded to fill remaining space
           Expanded(
             child: _buildRemoteTabArea(),
           ),
 
-          // Device list panel at bottom
-          DeviceListPanel(
-            onDeviceConnect: _connectToDevice,
-          ),
+          // Device list panel at bottom - only show when not in fullscreen
+          if (_showDevicePanel.value)
+            DeviceListPanel(
+              onDeviceConnect: _connectToDevice,
+            ),
         ],
-      ),
+      )),
     );
   }
 

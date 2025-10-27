@@ -329,6 +329,10 @@ void runConnectionManagerScreen() async {
 void runDeviceManagementScreen() async {
   await initEnv(kAppTypeMain);
 
+  // Set window ID for fullscreen support
+  // Device management uses main window (id = 0)
+  stateGlobal.setWindowId(0);
+
   // Set input source to "Input source 2" (Flutter keyboard mode) for device management
   // This ensures keyboard events are properly processed through Flutter's event system
   await bind.mainSetLocalOption(key: 'input-source', value: 'Input source 2');

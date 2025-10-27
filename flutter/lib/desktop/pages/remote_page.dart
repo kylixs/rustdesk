@@ -493,7 +493,8 @@ class _RemotePageState extends State<RemotePage>
         if (!isWeb) bind.hostStopSystemKeyPropagate(stopped: true);
       }, child: LayoutBuilder(builder: (context, constraints) {
         final c = Provider.of<CanvasModel>(context, listen: false);
-        Future.delayed(Duration.zero, () => c.updateViewStyle());
+        c.updateConstraints(constraints.maxWidth, constraints.maxHeight);
+        c.updateViewStyle();
         final peerDisplay = CurrentDisplayState.find(widget.id);
         return Obx(
           () => _ffi.ffiModel.pi.isSet.isFalse
