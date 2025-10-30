@@ -8,6 +8,10 @@ echo "==========================================="
 echo "RustDesk CI Environment Setup (x86_64)"
 echo "==========================================="
 
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Environment Variables (from CI)
 export RUST_VERSION="1.75"
 export FLUTTER_VERSION="3.24.5"
@@ -81,16 +85,15 @@ echo "✓ Cargo.toml configured (cdylib only, correct lib name)"
 # Step 6: Setup vcpkg (from CI line 1362-1368)
 echo ""
 echo "Step 6: Setting up vcpkg..."
-export VCPKG_ROOT=/opt/vcpkg
+export VCPKG_ROOT="$PROJECT_ROOT/vcpkg"
 
 if [ ! -d "$VCPKG_ROOT" ]; then
-    sudo mkdir -p /opt
-    cd /opt
+    cd $PROJECT_ROOT
     sudo git clone https://github.com/Microsoft/vcpkg.git
     cd vcpkg
     sudo git checkout $VCPKG_COMMIT_ID
     sudo ./bootstrap-vcpkg.sh
-    sudo chown -R $USER:$USER /opt/vcpkg
+    sudo chown -R $USER:$USER $VCPKG_ROOT
     cd -
 else
     echo "vcpkg already exists at $VCPKG_ROOT"

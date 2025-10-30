@@ -8,10 +8,14 @@ echo "==========================================="
 echo "RustDesk Rust Library Build Script"
 echo "==========================================="
 
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Environment setup
 export RUST_VERSION="1.75"
 export TARGET="x86_64-unknown-linux-gnu"
-export VCPKG_ROOT=/opt/vcpkg
+export VCPKG_ROOT="$PROJECT_ROOT/vcpkg"
 export JOBS=""  # empty for x86_64, "--jobs 3" for aarch64
 
 cd $(dirname $0)/..

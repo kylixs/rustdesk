@@ -9,6 +9,10 @@ echo "==========================================="
 echo "RustDesk Flutter Build Script (x86_64)"
 echo "==========================================="
 
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Environment setup
 export FLUTTER_VERSION="3.24.5"
 export VERSION="1.4.2"
