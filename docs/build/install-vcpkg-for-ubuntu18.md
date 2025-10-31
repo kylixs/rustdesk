@@ -41,7 +41,7 @@ when making a shared object; recompile with -fPIC
 
 ```bash
 # 进入项目目录
-cd /home/gongdewei/work/projects/rustdesk2
+cd /data/work/projects/rustdesk
 
 # 运行统一的 vcpkg 依赖安装脚本
 bash scripts/install_vcpkg_deps.sh
@@ -166,8 +166,8 @@ ls $INSTALL_DIR/include/opus/opus.h
 cd /tmp
 
 # 提取 libopus.a 的目标文件
-ar x /home/gongdewei/work/projects/rustdesk2/vcpkg/installed/x64-linux/lib/libopus.a \
-  $(ar t /home/gongdewei/work/projects/rustdesk2/vcpkg/installed/x64-linux/lib/libopus.a | head -1)
+ar x /data/work/projects/rustdesk/vcpkg/installed/x64-linux/lib/libopus.a \
+  $(ar t /data/work/projects/rustdesk/vcpkg/installed/x64-linux/lib/libopus.a | head -1)
 
 # 检查重定位类型
 readelf -r *.o | grep R_X86_64_32
@@ -213,7 +213,7 @@ bash scripts/setup-for-ubuntu18.sh
 **解决：**
 ```bash
 # 完整清理并重新安装
-cd /home/gongdewei/work/projects/rustdesk2
+cd /data/work/projects/rustdesk
 
 # 清理 Rust 缓存
 cargo clean

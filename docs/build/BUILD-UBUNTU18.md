@@ -14,7 +14,7 @@ For a quick setup, use the provided automation script:
 
 ```bash
 # Inside Docker container as user (not root)
-cd /data/work/projects/rustdesk2
+cd /data/work/projects/rustdesk
 bash scripts/setup-for-ubuntu18.sh
 ```
 
@@ -31,7 +31,7 @@ After setup is complete, build with:
 
 ```bash
 # Export required environment variable
-export VCPKG_ROOT=/data/work/projects/rustdesk2/vcpkg
+export VCPKG_ROOT=/data/work/projects/rustdesk/vcpkg
 
 # Build release version
 cargo build --features hwcodec,flutter,unix-file-copy-paste --release
@@ -83,7 +83,7 @@ This ensures all vcpkg dependencies (libopus, libyuv, libvpx, aom, etc.) are com
 The `hwcodec` build script requires this variable:
 
 ```bash
-export VCPKG_ROOT=/data/work/projects/rustdesk2/vcpkg
+export VCPKG_ROOT=/data/work/projects/rustdesk/vcpkg
 ```
 
 #### 3. Configure Cargo.toml Library Types
@@ -168,7 +168,7 @@ bash scripts/rebuild-vcpkg-with-pic.sh
 
 **Solution**:
 ```bash
-export VCPKG_ROOT=/data/work/projects/rustdesk2/vcpkg
+export VCPKG_ROOT=/data/work/projects/rustdesk/vcpkg
 ```
 
 ### Issue: Binary Targets Fail to Compile
@@ -218,7 +218,7 @@ Subsequent incremental builds are much faster.
 ```bash
 # Start Ubuntu 18.04 container with project mounted
 docker run -it --name ubuntu-1804 \
-  -v /path/to/rustdesk2:/data/work/projects/rustdesk2 \
+  -v /path/to/rustdesk:/data/work/projects/rustdesk \
   ubuntu:18.04 bash
 
 # Inside container, create user
@@ -226,7 +226,7 @@ useradd -m -u 1000 -s /bin/bash gongdewei
 
 # Switch to user and run setup
 su - gongdewei
-cd /data/work/projects/rustdesk2
+cd /data/work/projects/rustdesk
 bash scripts/setup-for-ubuntu18.sh
 ```
 
