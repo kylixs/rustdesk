@@ -11,6 +11,35 @@ echo "==========================================="
 echo "RustDesk CI Environment Setup (x86_64)"
 echo "Docker Ubuntu 18.04 Environment"
 echo "==========================================="
+echo ""
+
+# ===== 获取 sudo 权限 =====
+if [[ $EUID -ne 0 ]]; then
+    echo "此脚本需要 sudo 权限来安装系统依赖..."
+    echo "请输入密码："
+
+    # 获取 sudo 权限
+    if ! sudo -v; then
+        echo "错误: 无法获取 sudo 权限"
+        exit 1
+    fi
+
+    # 保持 sudo 权限活跃（后台进程，每 60 秒更新）
+    (
+        while true; do
+            sudo -n true
+            sleep 60
+            kill -0 "$$" 2>/dev/null || exit
+        done
+    ) &
+    SUDO_KEEPER_PID=$!
+
+    # 脚本退出时清理后台进程
+    trap "kill $SUDO_KEEPER_PID 2>/dev/null || true" EXIT INT TERM
+
+    echo "✓ sudo 权限已获取"
+    echo ""
+fi
 
 # Environment Variables (from CI)
 export RUST_VERSION="1.75"
@@ -32,8 +61,8 @@ echo ""
 echo "Step 1: Installing essential tools for Ubuntu 18.04..."
 
 # Add FFmpeg 4.x PPA for Ubuntu 18.04
-apt-get update -y
-apt-get install -y software-properties-common
+sudo apt-get update -y
+sudo apt-get install -y software-properties-common
 
 #add-apt-repository -y ppa:jonathonf/ffmpeg-4
 # Add the PPA manually
@@ -41,9 +70,9 @@ echo "deb [trusted=yes] http://ppa.launchpad.net/jonathonf/ffmpeg-4/ubuntu bioni
 echo "# deb-src [trusted=yes] http://ppa.launchpad.net/jonathonf/ffmpeg-4/ubuntu bionic main" | sudo tee -a /etc/apt/sources.list.d/ffmpeg-4.list
 
 
-apt-get update -y
+sudo apt-get update -y
 
-apt-get install -y \
+sudo apt-get install -y \
     curl wget git build-essential libc6-dev \
     pkg-config cmake ninja-build \
     nasm yasm \
@@ -52,7 +81,7 @@ apt-get install -y \
     libxcb-randr0-dev libxdo-dev \
     libxfixes-dev libxcb-shape0-dev libxcb-xfixes0-dev \
     libasound2-dev libpulse-dev \
-    libclang-dev \
+    libclang-10-dev llvm-10-dev \
     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
     libpam0g-dev libva-dev \
     zip unzip \
@@ -61,12 +90,26 @@ apt-get install -y \
 
 echo "✓ Essential tools installed"
 
+# Create symlink for ffigen to find libclang-10 (ffigen 8.0+ requires libclang 10+)
+echo ""
+echo "Configuring libclang-10 for ffigen..."
+if [ -f "/usr/lib/x86_64-linux-gnu/libclang-10.so.1" ]; then
+    if [ ! -L "/usr/lib/llvm-10/lib/libclang.so" ]; then
+        sudo ln -sf /usr/lib/x86_64-linux-gnu/libclang-10.so.1 /usr/lib/llvm-10/lib/libclang.so
+        echo "✓ Created libclang.so symlink for ffigen"
+    else
+        echo "✓ libclang.so symlink already exists"
+    fi
+else
+    echo "⚠️  Warning: libclang-10 not found"
+fi
+
 # Fix xfixes.pc fixesproto version requirement (Ubuntu 18.04 compatibility)
 # xfixes.pc requires fixesproto >= 6.0, but Ubuntu 18.04 only has 5.0
 # Remove the version constraint to allow building
 echo "Patching xfixes.pc for Ubuntu 18.04 compatibility..."
 if [ -f /usr/lib/x86_64-linux-gnu/pkgconfig/xfixes.pc ]; then
-    sed -i 's/fixesproto >= 6.0/fixesproto/g' /usr/lib/x86_64-linux-gnu/pkgconfig/xfixes.pc
+    sudo sed -i 's/fixesproto >= 6.0/fixesproto/g' /usr/lib/x86_64-linux-gnu/pkgconfig/xfixes.pc
     echo "✓ xfixes.pc patched (removed fixesproto version constraint)"
 fi
 
@@ -136,10 +179,10 @@ VCPKG_INSTALLED="$VCPKG_ROOT/installed/$VCPKG_TRIPLET"
 
 if [ ! -d "$VCPKG_ROOT" ]; then
     cd $PROJECT_ROOT
-    sudo git clone https://github.com/Microsoft/vcpkg.git
+    git clone https://github.com/Microsoft/vcpkg.git
     cd vcpkg
-    sudo git checkout $VCPKG_COMMIT_ID
-    sudo ./bootstrap-vcpkg.sh
+    git checkout $VCPKG_COMMIT_ID
+    ./bootstrap-vcpkg.sh
     sudo chmod -R 755 $VCPKG_ROOT
 else
     echo "vcpkg already exists at $VCPKG_ROOT"
@@ -229,5 +272,5 @@ echo "  FLUTTER_DIR=$FLUTTER_DIR"
 echo "  PATH includes Flutter and Cargo"
 echo ""
 echo "Next steps:"
-echo "  1. Run: ./build.sh"
+echo "  1. Run: ./build-for-ubuntu18.sh"
 echo ""

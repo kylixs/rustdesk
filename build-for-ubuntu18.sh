@@ -59,6 +59,18 @@ echo '#include <cstdlib>' | g++ -x c++ -E - > /dev/null 2>&1 && echo "✓ C++ �
 echo "验证 FFmpeg 库..."
 pkg-config --exists libavcodec && echo "✓ libavcodec 可用" || echo "✗ libavcodec 不可用"
 
+# Configure libclang for ffigen (ffigen 8.0+ requires libclang 10+)
+echo "配置 ffigen 所需的 libclang..."
+if [ -f "/usr/lib/x86_64-linux-gnu/libclang-10.so.1" ]; then
+    export LIBCLANG_PATH=/usr/lib/x86_64-linux-gnu
+    export CPATH=/usr/lib/llvm-10/include:/usr/include:$CPATH
+    export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+    echo "✓ libclang-10 已配置"
+else
+    echo "✗ 警告: libclang-10 未安装，ffigen 可能会失败"
+    echo "  请运行: sudo bash scripts/fix-ffigen-libclang.sh"
+fi
+
 
 cd "$PROJECT_ROOT"
 WORKSPACE=$(pwd)

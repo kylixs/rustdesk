@@ -11,6 +11,34 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# ===== 获取 sudo 权限 =====
+if [[ $EUID -ne 0 ]]; then
+    echo "此脚本需要 sudo 权限来安装系统依赖和清理缓存..."
+    echo "请输入密码："
+
+    # 获取 sudo 权限
+    if ! sudo -v; then
+        echo "错误: 无法获取 sudo 权限"
+        exit 1
+    fi
+
+    # 保持 sudo 权限活跃（后台进程，每 60 秒更新）
+    (
+        while true; do
+            sudo -n true
+            sleep 60
+            kill -0 "$$" 2>/dev/null || exit
+        done
+    ) &
+    SUDO_KEEPER_PID=$!
+
+    # 脚本退出时清理后台进程
+    trap "kill $SUDO_KEEPER_PID 2>/dev/null || true" EXIT INT TERM
+
+    echo "✓ sudo 权限已获取"
+    echo ""
+fi
+
 export VCPKG_TRIPLET="${VCPKG_TRIPLET:-x64-linux}"
 export VCPKG_ROOT="$PROJECT_ROOT/vcpkg"
 INSTALL_DIR="$VCPKG_ROOT/installed/$VCPKG_TRIPLET"
@@ -240,7 +268,7 @@ export CFLAGS="-fPIC"
 export CXXFLAGS="-fPIC"
 
 # 使用 --x-install-root 和详细输出
-if ! sudo CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" $VCPKG_ROOT/vcpkg install --triplet $VCPKG_TRIPLET --x-install-root="$VCPKG_ROOT/installed" 2>&1 | tee vcpkg_install.log; then
+if ! CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" $VCPKG_ROOT/vcpkg install --triplet $VCPKG_TRIPLET --x-install-root="$VCPKG_ROOT/installed" 2>&1 | tee vcpkg_install.log; then
     echo ""
     echo "ERROR: vcpkg 安装过程中出现错误"
     
