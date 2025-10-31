@@ -52,6 +52,7 @@ lib/generated_bridge.dart
 # build cache in examples
 examples/**/target/
 # ===
+vcpkg
 vcpkg_installed
 flutter/lib/generated_plugin_registrant.dart
 libsciter.dylib

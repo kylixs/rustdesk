@@ -66,6 +66,7 @@ echo "This will take 20-40 minutes on first build..."
 cd $WORKSPACE
 export PATH="$HOME/.cargo/bin:$PATH"
 
+echo "cargo build --lib $JOBS --features hwcodec,flutter,unix-file-copy-paste --release"
 cargo build --lib $JOBS --features hwcodec,flutter,unix-file-copy-paste --release
 
 echo "✓ Rust library built at: $WORKSPACE/target/release/liblibrustdesk.so"

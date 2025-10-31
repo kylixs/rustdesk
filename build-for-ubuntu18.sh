@@ -23,7 +23,7 @@ export ARCH="x86_64"
 export JOBS=""  # empty for x86_64, "--jobs 3" for aarch64
 
 export VCPKG_ROOT="$PROJECT_ROOT/vcpkg"
-VCPKG_INSTALLED="$VCPKG_ROOT/installed/$VCPKG_TRIPLET"
+export VCPKG_INSTALLED="$VCPKG_ROOT/installed/$VCPKG_TRIPLET"
 
 # Prefer system libraries for GTK/X11, vcpkg for codecs
 export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:$VCPKG_INSTALLED/lib/pkgconfig:$PKG_CONFIG_PATH"
@@ -45,8 +45,8 @@ fi
 export RUSTFLAGS="-L /usr/lib/x86_64-linux-gnu -L $VCPKG_INSTALLED/lib"
 
 # Use system default compiler settings
-unset CFLAGS
-unset CXXFLAGS
+# unset CFLAGS
+# unset CXXFLAGS
 export CC="gcc"
 export CXX="g++"
 

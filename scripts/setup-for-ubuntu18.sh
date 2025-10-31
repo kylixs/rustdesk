@@ -112,11 +112,21 @@ echo "✓ Rust installed: rustc $(rustc --version)"
 echo ""
 echo "Step 4: Configuring Cargo.toml..."
 cd "$PROJECT_ROOT"
-# Change library type to cdylib only
-sed -i 's/\["cdylib", "staticlib", "rlib"\]/["cdylib"]/g' Cargo.toml
-# Fix library name to avoid lib prefix duplication (librustdesk -> rustdesk)
-sed -i 's/name = "librustdesk"/name = "rustdesk"/g' Cargo.toml
-echo "✓ Cargo.toml configured (cdylib only, correct lib name)"
+
+# Check if crate-type contains both "cdylib" and "rlib" (order-independent)
+CRATE_TYPE_LINE=$(grep -E '^\s*crate-type\s*=' Cargo.toml || echo "")
+if [ -n "$CRATE_TYPE_LINE" ]; then
+    if echo "$CRATE_TYPE_LINE" | grep -q '"cdylib"' && echo "$CRATE_TYPE_LINE" | grep -q '"rlib"'; then
+        echo "✓ Cargo.toml already configured with cdylib and rlib"
+    else
+        echo "Configuring Cargo.toml: setting crate-type = [\"cdylib\", \"rlib\"]"
+        # Replace crate-type line with the correct configuration
+        sed -i 's/^\s*crate-type\s*=.*$/crate-type = ["cdylib", "rlib"]/' Cargo.toml
+        echo "✓ Cargo.toml configured"
+    fi
+else
+    echo "⚠️  Warning: Could not find crate-type in Cargo.toml"
+fi
 
 # Step 5: Setup vcpkg
 echo ""
@@ -137,47 +147,51 @@ fi
 
 echo "✓ vcpkg ready: $(cd $VCPKG_ROOT && git rev-parse --short HEAD)"
 
+# Step 5.5: Configure vcpkg triplet for PIC (Position Independent Code)
+echo ""
+echo "Step 5.5: Configuring vcpkg triplet with -fPIC..."
+TRIPLET_FILE="$VCPKG_ROOT/triplets/$VCPKG_TRIPLET.cmake"
+
+# Backup original triplet file if not already backed up
+if [ ! -f "$TRIPLET_FILE.backup" ]; then
+    cp "$TRIPLET_FILE" "$TRIPLET_FILE.backup"
+    echo "✓ Original triplet backed up to $TRIPLET_FILE.backup"
+fi
+
+# Check if -fPIC is already configured
+if ! grep -q "VCPKG_C_FLAGS.*-fPIC" "$TRIPLET_FILE"; then
+    echo "" >> "$TRIPLET_FILE"
+    echo "# Force PIC for static libraries so they can be linked into shared libraries (librustdesk.so)" >> "$TRIPLET_FILE"
+    echo "set(VCPKG_C_FLAGS \"-fPIC\")" >> "$TRIPLET_FILE"
+    echo "set(VCPKG_CXX_FLAGS \"-fPIC\")" >> "$TRIPLET_FILE"
+    echo "✓ Added -fPIC flags to triplet configuration"
+else
+    echo "✓ -fPIC already configured in triplet"
+fi
+
+# Display current triplet configuration
+echo "Current triplet configuration:"
+cat "$TRIPLET_FILE"
+echo ""
+
 # Step 6: Install vcpkg dependencies
 echo ""
 echo "Step 6: Installing vcpkg dependencies..."
-echo "This will take n minutes..."
+echo "Calling install-vcpkg-for-ubuntu18.sh..."
+echo ""
 
 cd "$PROJECT_ROOT"
 
-# Clean any previous failed builds
-rm -rf $VCPKG_ROOT/installed || true
-rm -rf $VCPKG_ROOT/buildtrees/aom* || true
-rm -rf $VCPKG_ROOT/packages/aom* || true
-rm -rf $VCPKG_ROOT/buildtrees/libyuv* || true
-rm -rf $VCPKG_ROOT/packages/libyuv* || true
-
-if ! $VCPKG_ROOT/vcpkg install --triplet $VCPKG_TRIPLET --x-install-root="$VCPKG_ROOT/installed"; then
+# Call the dedicated vcpkg installation script
+if ! bash "$SCRIPT_DIR/install-vcpkg-for-ubuntu18.sh"; then
+    echo ""
     echo "ERROR: vcpkg installation failed"
-    find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
-        echo "$_1:"
-        echo "======"
-        cat "$_1"
-        echo "======"
-        echo ""
-    done
+    echo "Please check the error messages above"
     exit 1
 fi
 
-# Verify critical dependencies are installed correctly
 echo ""
-echo "Verifying vcpkg dependencies..."
-
-# Check critical libraries (vcpkg would have failed if these weren't installed)
-for lib in aom yuv vpx opus; do
-    if [ ! -f "$VCPKG_INSTALLED/lib/lib${lib}.a" ]; then
-        echo "ERROR: lib${lib}.a not found. vcpkg installation may have issues."
-        exit 1
-    fi
-done
-
-echo "✓ Critical dependencies verified: libaom, libyuv, libvpx, libopus"
-[ -f "$VCPKG_INSTALLED/include/libavutil/attributes.h" ] && echo "  FFmpeg: vcpkg" || echo "  FFmpeg: system ($(ffmpeg -version 2>/dev/null | head -1 | awk '{print $3}'))"
-echo "✓ vcpkg dependencies installed"
+echo "✓ vcpkg dependencies installed successfully"
 
 # Step 7: Setup Flutter
 echo ""
