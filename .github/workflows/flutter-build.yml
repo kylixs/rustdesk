@@ -37,8 +37,8 @@ env:
   #  Or we may face build issue like 
   #  https://github.com/rustdesk/rustdesk/actions/runs/14414119794/job/40427970174
   # 2. Update the `VCPKG_COMMIT_ID` in `ci.yml` and `playground.yml`.
-  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
-  ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836" # 2025.01.13, got "/opt/artifacts/vcpkg/vcpkg: No such file or directory" with latest version
+  VCPKG_COMMIT_ID: "3e2e72c2d6a8d8b3c1c0d394077cc928dabcda29"
+  ARMV7_VCPKG_COMMIT_ID: "3e2e72c2d6a8d8b3c1c0d394077cc928dabcda29"
   VERSION: "1.4.3-jlc16"
   NDK_VERSION: "r27c"
   #signing keys env variable checks
@@ -1760,6 +1760,14 @@ jobs:
           wget -q https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
           tar -xf flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
           echo "/opt/flutter/bin" >> $GITHUB_PATH
+
+      - name: Setup vcpkg with Github Actions binary cache
+        if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: "$GITHUB_WORKSPACE/vcpkg"
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
 
       - name: Install vcpkg dependencies
         run: |
