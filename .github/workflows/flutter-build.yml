@@ -1771,18 +1771,23 @@ jobs:
           echo "=========================================="
           bash ./build-for-ubuntu18.sh
 
-      - name: List build artifacts
-        run: |
           ls -lh rustdesk*-ubuntu18.deb || true
-          ls -lh target/release/liblibrustdesk.so || true
-          ls -lh build/linux/x64/release/bundle/ || true
 
       - name: Upload Ubuntu 18 Debian package
+        if: false
         uses: minecraft-linux/actions-upload-artifact-node-16@7efe82fe5311d8051a67e63871dbbab457c345f9
         with:
           name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-ubuntu18.deb
           path: rustdesk-*-ubuntu18.deb
 
+      - name: Publish package
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: |
+            rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-ubuntu18.deb
 
   build-rustdesk-linux-sciter:
     if: false # Disabled Sciter build
