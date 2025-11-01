@@ -108,6 +108,13 @@ jobs:
           npm install @actions/artifact glob
           echo "✓ Dependencies installed"
 
+      - name: Export GitHub Actions environment variables
+        run: |
+          echo "ACTIONS_RUNTIME_URL=$ACTIONS_RUNTIME_URL" >> $GITHUB_ENV
+          echo "ACTIONS_RUNTIME_TOKEN=$ACTIONS_RUNTIME_TOKEN" >> $GITHUB_ENV
+          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID" >> $GITHUB_ENV
+          echo "✓ Environment variables exported"
+
       - name: Upload test artifacts using custom script
         run: |
           echo "=========================================="
