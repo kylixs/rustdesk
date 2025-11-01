@@ -1701,37 +1701,14 @@ jobs:
         run: |
           apt-get update
           apt-get install -y \
-            sudo \
-            build-essential \
-            clang \
-            cmake \
-            curl \
-            gcc \
-            git \
-            g++ \
-            libclang-10-dev \
-            libglib2.0-dev \
-            libgtk-3-dev \
-            libpam0g-dev \
-            libpulse-dev \
-            libva-dev \
-            libvdpau-dev \
-            libxcb-randr0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxdo-dev \
-            libxfixes-dev \
-            llvm-10-dev \
-            nasm \
-            ninja-build \
-            pkg-config \
-            python3 \
-            python3-pip \
-            tree \
-            wget \
-            ca-certificates \
-            software-properties-common \
-            bc
+            sudo curl zip unzip tar git \
+            build-essential clang  cmake  gcc g++ \
+            libclang-10-dev libglib2.0-dev libgtk-3-dev libpam0g-dev \
+            libpulse-dev libva-dev libvdpau-dev libxcb-randr0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev libxfixes-dev \
+            llvm-10-dev nasm ninja-build ninja pkg-config \
+            python3 python3-pip tree wget ca-certificates \
+            software-properties-common bc
 
       - name: Upgrade Python to 3.8
         run: |
