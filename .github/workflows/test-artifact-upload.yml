@@ -189,6 +189,13 @@ jobs:
         run: |
           npm install @actions/artifact glob
 
+      - name: Export GitHub Actions environment variables
+        run: |
+          echo "ACTIONS_RUNTIME_URL=$ACTIONS_RUNTIME_URL" >> $GITHUB_ENV
+          echo "ACTIONS_RUNTIME_TOKEN=$ACTIONS_RUNTIME_TOKEN" >> $GITHUB_ENV
+          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID" >> $GITHUB_ENV
+          echo "✓ Environment variables exported"
+
       - name: Upload artifacts
         run: |
           node .github/scripts/upload-artifacts.js \
