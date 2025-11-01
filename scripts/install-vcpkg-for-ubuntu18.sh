@@ -49,6 +49,7 @@ cd $PROJECT_ROOT
 echo "VCPKG_ROOT: $VCPKG_ROOT"
 echo "TRIPLET: $VCPKG_TRIPLET"
 echo ""
+mkdir "$VCPKG_ROOT"
 
 # Step 0: Verify -fPIC configuration
 echo "Step 0: 验证 -fPIC 配置..."
@@ -102,34 +103,32 @@ echo "  - packages/"
 echo "  - vcpkg status 数据库"
 echo ""
 
-cd "$VCPKG_ROOT"
-
 # 删除已安装的库
-if [ -d "installed/$VCPKG_TRIPLET" ]; then
-    echo "删除 installed/$VCPKG_TRIPLET..."
-    sudo rm -rf "installed/$VCPKG_TRIPLET" || true
+if [ -d "$VCPKG_ROOT/installed/$VCPKG_TRIPLET" ]; then
+    echo "删除 $VCPKG_ROOT/installed/$VCPKG_TRIPLET..."
+    sudo rm -rf "$VCPKG_ROOT/installed/$VCPKG_TRIPLET" || true
 fi
 
 # 删除构建树（关键 - 包含缓存的对象文件）
-if [ -d "buildtrees" ]; then
-    echo "删除 buildtrees/..."
-    sudo rm -rf buildtrees/* || true
+if [ -d "$VCPKG_ROOT/buildtrees" ]; then
+    echo "删除 $VCPKG_ROOT/buildtrees/..."
+    sudo rm -rf $VCPKG_ROOT/buildtrees/* || true
 fi
 
 # 删除打包文件
-if [ -d "packages" ]; then
-    echo "删除 packages/..."
-    sudo rm -rf packages/* || true
+if [ -d "$VCPKG_ROOT/packages" ]; then
+    echo "删除 $VCPKG_ROOT/packages/..."
+    sudo rm -rf $VCPKG_ROOT/packages/* || true
 fi
 
 # 删除 vcpkg 状态数据库（关键 - vcpkg 缓存安装状态）
-if [ -f "installed/vcpkg/status" ]; then
+if [ -f "$VCPKG_ROOT/installed/vcpkg/status" ]; then
     echo "删除 vcpkg 状态数据库..."
-    sudo rm -f "installed/vcpkg/status" || true
+    sudo rm -f "$VCPKG_ROOT/installed/vcpkg/status" || true
 fi
 
 # 删除旧的下载文件
-sudo rm -f downloads/kylixs-*.tar.gz || true
+sudo rm -f $VCPKG_ROOT/downloads/* || true
 
 echo "✓ 缓存清理完成"
 echo ""
