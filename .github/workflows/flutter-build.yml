@@ -1670,10 +1670,19 @@ jobs:
             }
 
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
+      - name: Install git
+        run: |
+          apt-get update
+          apt-get install -y git
+
+      - name: Clone main repository
+        run: |
+          git clone https://github.com/${{ github.repository }} .
+          git checkout ${{ github.sha }}
+
+      - name: Checkout submodules
+        run: |
+          git submodule update --init --recursive
 
       - name: Cache vcpkg dependencies
         uses: actions/cache@v3
@@ -1778,17 +1787,11 @@ jobs:
           ls -lh build/linux/x64/release/bundle/ || true
 
       - name: Upload Ubuntu 18 Debian package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3-node16
         with:
           name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-ubuntu18.deb
           path: rustdesk-*-ubuntu18.deb
 
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-ubuntu18-${{ matrix.job.arch }}
-          path: build.log
 
   build-rustdesk-linux-sciter:
     if: false # Disabled Sciter build
