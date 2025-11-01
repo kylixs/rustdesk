@@ -1787,7 +1787,7 @@ jobs:
           ls -lh build/linux/x64/release/bundle/ || true
 
       - name: Upload Ubuntu 18 Debian package
-        uses: minecraft-linux/actions-upload-artifact-node-16
+        uses: minecraft-linux/actions-upload-artifact-node-16@v4
         with:
           name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-ubuntu18.deb
           path: rustdesk-*-ubuntu18.deb
