@@ -49,7 +49,7 @@ cd $PROJECT_ROOT
 echo "VCPKG_ROOT: $VCPKG_ROOT"
 echo "TRIPLET: $VCPKG_TRIPLET"
 echo ""
-mkdir "$VCPKG_ROOT"
+mkdir -p "$VCPKG_ROOT"
 
 # Step 0: Verify -fPIC configuration
 echo "Step 0: 验证 -fPIC 配置..."
