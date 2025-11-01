@@ -1,0 +1,24 @@
+{
+  "name": "rustdesk-artifact-uploader",
+  "version": "1.0.0",
+  "description": "Custom artifact upload script for RustDesk GitHub Actions workflows",
+  "main": "upload-artifacts.js",
+  "scripts": {
+    "test": "node upload-artifacts.js --help || echo 'Usage: node upload-artifacts.js <artifact-name> <file-patterns...>'"
+  },
+  "keywords": [
+    "github-actions",
+    "artifacts",
+    "upload",
+    "rustdesk"
+  ],
+  "author": "RustDesk Team",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "@actions/artifact": "^2.1.0",
+    "glob": "^10.3.10"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

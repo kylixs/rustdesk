@@ -1,0 +1,200 @@
+name: Test Artifact Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_size:
+        description: 'Number of test files to create'
+        required: false
+        default: '3'
+        type: choice
+        options:
+          - '1'
+          - '3'
+          - '5'
+  push:
+    branches:
+      - test-artifact-upload
+
+jobs:
+  test-upload-in-container:
+    name: Test Upload in Ubuntu 18 Container
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:18.04
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - {
+              arch: x86_64,
+              test_size: 3,
+            }
+
+    steps:
+      - name: Checkout source code
+        run: |
+          apt-get update
+          apt-get install -y git
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+          git clone https://github.com/${{ github.repository }} .
+          git checkout ${{ github.sha }}
+          git submodule update --init --recursive
+
+      - name: Create test files
+        run: |
+          echo "=========================================="
+          echo "Creating test files in Ubuntu 18.04..."
+          echo "=========================================="
+          echo ""
+
+          # Create test files with different sizes
+          echo 'Test file 1 - Small' > test-file-1.txt
+          echo 'This is a small test file from Ubuntu 18.04 container' >> test-file-1.txt
+
+          # Create medium file (1MB)
+          dd if=/dev/zero of=test-file-2.bin bs=1M count=1 2>/dev/null
+          echo "✓ Created test-file-2.bin (1 MB)"
+
+          # Create larger file (5MB)
+          if [ "${{ matrix.job.test_size }}" -ge 3 ]; then
+            dd if=/dev/zero of=test-file-3.bin bs=1M count=5 2>/dev/null
+            echo "✓ Created test-file-3.bin (5 MB)"
+          fi
+
+          # Create a log file
+          echo "Build started at: $(date)" > build-test.log
+          echo "Build architecture: ${{ matrix.job.arch }}" >> build-test.log
+          echo "Build completed successfully" >> build-test.log
+          echo "Total files: ${{ matrix.job.test_size }}" >> build-test.log
+
+          echo ""
+          echo "=========================================="
+          echo "Test files created:"
+          echo "=========================================="
+          ls -lh test-file-* build-test.log 2>/dev/null || echo "No files found"
+          echo ""
+
+      - name: Setup Node.js (outside container)
+        # 注意：这一步会在宿主机上运行，因为 actions/setup-node 不在容器内
+        # 我们需要在容器内手动安装 Node.js
+        run: |
+          echo "Skipping - will install Node.js manually in container"
+
+      - name: Install Node.js in container
+        run: |
+          echo "Installing Node.js 16 in Ubuntu 18.04 container..."
+
+          # 更新包列表
+          apt-get update
+
+          # 安装必要工具
+          apt-get install -y curl ca-certificates
+
+          # 安装 Node.js 16
+          curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
+          apt-get install -y nodejs
+
+          # 验证安装
+          node --version
+          npm --version
+
+          echo "✓ Node.js installed successfully"
+
+      - name: Install npm dependencies
+        run: |
+          echo "Installing @actions/artifact and glob packages..."
+          npm install @actions/artifact glob
+          echo "✓ Dependencies installed"
+
+      - name: Upload test artifacts using custom script
+        run: |
+          echo "=========================================="
+          echo "Uploading artifacts using custom script..."
+          echo "=========================================="
+          echo ""
+
+          node .github/scripts/upload-artifacts.js \
+            "test-artifacts-ubuntu18-${{ github.run_number }}" \
+            "test-file-*.txt" \
+            "test-file-*.bin" \
+            "build-test.log"
+
+      - name: Upload logs separately
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "Uploading logs separately..."
+          echo "=========================================="
+          echo ""
+
+          node .github/scripts/upload-artifacts.js \
+            "test-logs-ubuntu18-${{ github.run_number }}" \
+            "*.log"
+
+      - name: Test result
+        if: success()
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "✅ Test Completed Successfully!"
+          echo "=========================================="
+          echo ""
+          echo "Artifacts uploaded:"
+          echo "  - test-artifacts-ubuntu18-${{ github.run_number }}"
+          echo "  - test-logs-ubuntu18-${{ github.run_number }}"
+          echo ""
+          echo "You can download them from the Actions tab."
+          echo ""
+
+      - name: Cleanup test files
+        if: always()
+        run: |
+          rm -f test-file-*.txt test-file-*.bin build-test.log
+          echo "✓ Test files cleaned up"
+
+  test-upload-native:
+    name: Test Upload in Native Environment
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Create test files
+        run: |
+          echo "Creating test files..."
+
+          echo 'Native test file' > native-test.txt
+          echo 'Build timestamp: '$(date) > native-build.log
+
+          ls -lh native-*.txt native-*.log
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: |
+          npm install @actions/artifact glob
+
+      - name: Upload artifacts
+        run: |
+          node .github/scripts/upload-artifacts.js \
+            "native-test-${{ github.run_number }}" \
+            "native-*.txt" \
+            "native-*.log"
+
+      - name: Test result
+        if: success()
+        run: |
+          echo "✅ Native upload test completed successfully!"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f native-*.txt native-*.log
