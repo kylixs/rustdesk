@@ -94,10 +94,21 @@ echo "✓ Flutter application built"
 # Step 4: Rename deb packages
 echo ""
 echo "Step 4: Packaging DEB..."
+
+# Detect Ubuntu version
+UBUNTU_SUFFIX=""
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    if [ "$ID" = "ubuntu" ] && [ "$VERSION_ID" = "18.04" ]; then
+        UBUNTU_SUFFIX="-ubuntu18"
+        echo "Detected Ubuntu 18.04 - adding ubuntu18 suffix"
+    fi
+fi
+
 for name in rustdesk*??.deb; do
     if [ -f "$name" ]; then
-        mv "$name" "${name%%.deb}-${ARCH}.deb"
-        echo "✓ Created: ${name%%.deb}-${ARCH}.deb"
+        mv "$name" "${name%%.deb}-${ARCH}${UBUNTU_SUFFIX}.deb"
+        echo "✓ Created: ${name%%.deb}-${ARCH}${UBUNTU_SUFFIX}.deb"
     fi
 done
 
