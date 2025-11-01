@@ -25,12 +25,14 @@ jobs:
       - name: Export GitHub Actions environment variables
         id: export-env
         run: |
-          echo "=== Debugging native environment ==="
-          echo "ACTIONS_RUNTIME_TOKEN exists: $([ -n \"$ACTIONS_RUNTIME_TOKEN\" ] && echo YES || echo NO)"
-          echo "ACTIONS_RUNTIME_URL: $ACTIONS_RUNTIME_URL"
-          echo "ACTIONS_RESULTS_URL: $ACTIONS_RESULTS_URL"
+          echo "=== All environment variables ==="
+          printenv | sort
           echo ""
+          echo "=== ACTIONS_ variables ==="
           printenv | grep ACTIONS_ || echo "No ACTIONS_ vars found"
+          echo ""
+          echo "=== GITHUB_ variables ==="
+          printenv | grep GITHUB_ | head -20
           echo ""
           echo "Exporting to GITHUB_OUTPUT..."
           echo "actions-runtime-token=$ACTIONS_RUNTIME_TOKEN" >> $GITHUB_OUTPUT
