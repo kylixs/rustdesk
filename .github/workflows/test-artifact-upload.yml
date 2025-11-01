@@ -23,6 +23,11 @@ jobs:
     container:
       image: ubuntu:18.04
       options: --privileged
+      env:
+        ACTIONS_RUNTIME_TOKEN: ${{ env.ACTIONS_RUNTIME_TOKEN }}
+        ACTIONS_RUNTIME_URL: ${{ env.ACTIONS_RUNTIME_URL }}
+        ACTIONS_RESULTS_URL: ${{ env.ACTIONS_RESULTS_URL }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
     strategy:
       fail-fast: false
       matrix:
@@ -102,36 +107,20 @@ jobs:
 
           echo "✓ Node.js installed successfully"
 
-      - name: Install npm dependencies
-        run: |
-          echo "Installing @actions/artifact and glob packages..."
-          npm install @actions/artifact glob
-          echo "✓ Dependencies installed"
-
-      - name: Upload test artifacts using custom script
-        run: |
-          echo "=========================================="
-          echo "Uploading artifacts using custom script..."
-          echo "=========================================="
-          echo ""
-
-          node .github/scripts/upload-artifacts.js \
-            "test-artifacts-ubuntu18-${{ github.run_number }}" \
-            "test-file-*.txt" \
-            "test-file-*.bin" \
-            "build-test.log"
+      - name: Upload test artifacts using official action
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-ubuntu18-${{ github.run_number }}
+          path: |
+            test-file-*.txt
+            test-file-*.bin
+            build-test.log
 
       - name: Upload logs separately
-        run: |
-          echo ""
-          echo "=========================================="
-          echo "Uploading logs separately..."
-          echo "=========================================="
-          echo ""
-
-          node .github/scripts/upload-artifacts.js \
-            "test-logs-ubuntu18-${{ github.run_number }}" \
-            "*.log"
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-ubuntu18-${{ github.run_number }}
+          path: "*.log"
 
       - name: Test result
         if: success()
@@ -178,16 +167,13 @@ jobs:
         with:
           node-version: '16'
 
-      - name: Install dependencies
-        run: |
-          npm install @actions/artifact glob
-
       - name: Upload artifacts
-        run: |
-          node .github/scripts/upload-artifacts.js \
-            "native-test-${{ github.run_number }}" \
-            "native-*.txt" \
-            "native-*.log"
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-test-${{ github.run_number }}
+          path: |
+            native-*.txt
+            native-*.log
 
       - name: Test result
         if: success()
