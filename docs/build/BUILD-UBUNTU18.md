@@ -66,17 +66,22 @@ By default, vcpkg compiles static libraries without `-fPIC`, which causes linkin
 
 The fix involves three components:
 
-#### 1. Configure vcpkg Triplet with `-fPIC`
+#### 1. Configure vcpkg Triplet with `-fPIC` and `-DPIC`
 
 Modify `vcpkg/triplets/x64-linux.cmake` to add:
 
 ```cmake
 # Force PIC for static libraries so they can be linked into shared libraries (librustdesk.so)
-set(VCPKG_C_FLAGS "-fPIC")
-set(VCPKG_CXX_FLAGS "-fPIC")
+# -DPIC macro is required for FFmpeg assembly code to use PIC-compatible code paths
+set(VCPKG_C_FLAGS "-fPIC -DPIC")
+set(VCPKG_CXX_FLAGS "-fPIC -DPIC")
 ```
 
-This ensures all vcpkg dependencies (libopus, libyuv, libvpx, aom, etc.) are compiled with position-independent code.
+**Critical**: Both `-fPIC` flag AND `-DPIC` macro are required:
+- `-fPIC`: Tells compiler to generate position-independent code
+- `-DPIC`: Preprocessor macro that FFmpeg and opus assembly code use to select PIC-compatible code paths
+
+This ensures all vcpkg dependencies (libopus, libyuv, libvpx, aom, FFmpeg) are compiled with position-independent code.
 
 #### 2. Set VCPKG_ROOT Environment Variable
 
@@ -86,7 +91,46 @@ The `hwcodec` build script requires this variable:
 export VCPKG_ROOT=/data/work/projects/rustdesk/vcpkg
 ```
 
-#### 3. Configure Cargo.toml Library Types
+#### 3. Fix Opus Portfile to Pass -DPIC Macro
+
+The default opus portfile in vcpkg only sets `CMAKE_POSITION_INDEPENDENT_CODE=ON`, which adds `-fPIC` but doesn't pass the `-DPIC` macro. You need to modify `res/vcpkg/opus/portfile.cmake`:
+
+```cmake
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS ${FEATURE_OPTIONS}
+        -DPACKAGE_VERSION=${VERSION}
+        -DOPUS_STACK_PROTECTOR=${STACK_PROTECTOR}
+        -DOPUS_INSTALL_PKG_CONFIG_MODULE=ON
+        -DOPUS_INSTALL_CMAKE_CONFIG_MODULE=ON
+        -DOPUS_BUILD_PROGRAMS=OFF
+        -DOPUS_BUILD_TESTING=OFF
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        "-DCMAKE_C_FLAGS=${VCPKG_C_FLAGS}"      # Add this line
+        "-DCMAKE_CXX_FLAGS=${VCPKG_CXX_FLAGS}"  # Add this line
+        ${ADDITIONAL_OPUS_OPTIONS}
+```
+
+This ensures the `-DPIC` macro from the triplet is passed to opus assembly code.
+
+#### 4. Configure Library Search Order
+
+**Critical**: Ubuntu 18.04 system libraries (`/usr/lib/x86_64-linux-gnu/libopus.a`, `libavcodec.a`) are NOT compiled with PIC. You must prioritize vcpkg libraries over system libraries.
+
+In `build-for-ubuntu18.sh`, ensure vcpkg paths come FIRST:
+
+```bash
+# IMPORTANT: vcpkg libs FIRST to override system libs (system libs don't have PIC)
+export LIBRARY_PATH="$VCPKG_INSTALLED/lib:/usr/lib/x86_64-linux-gnu:$LIBRARY_PATH"
+export LD_LIBRARY_PATH="$VCPKG_INSTALLED/lib:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
+
+# Add library paths for Rust linker (vcpkg first to override system libs without PIC)
+export RUSTFLAGS="-L $VCPKG_INSTALLED/lib -L /usr/lib/x86_64-linux-gnu"
+```
+
+If system libraries are found first, cargo will link against non-PIC system libraries and cause relocation errors.
+
+#### 5. Configure Cargo.toml Library Types
 
 In `Cargo.toml`, ensure both `cdylib` and `rlib` are specified:
 
@@ -180,6 +224,52 @@ export VCPKG_ROOT=/data/work/projects/rustdesk/vcpkg
 **Solution**: Ensure `Cargo.toml` has:
 ```toml
 crate-type = ["cdylib", "rlib"]
+```
+
+### Issue: Still Getting PIC Errors After vcpkg Rebuild
+
+**Symptom**: PIC relocation errors persist even after rebuilding vcpkg libraries with `-fPIC -DPIC`.
+
+**Root Cause**: Ubuntu 18.04 system libraries at `/usr/lib/x86_64-linux-gnu/` (libopus.a, libavcodec.a, libavutil.a) are NOT compiled with PIC. If library search order has system paths before vcpkg paths, cargo will use non-PIC system libraries.
+
+**Solution**: Ensure library search order prioritizes vcpkg in `build-for-ubuntu18.sh`:
+```bash
+# vcpkg MUST come before system paths
+export LIBRARY_PATH="$VCPKG_INSTALLED/lib:/usr/lib/x86_64-linux-gnu:$LIBRARY_PATH"
+export LD_LIBRARY_PATH="$VCPKG_INSTALLED/lib:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
+export RUSTFLAGS="-L $VCPKG_INSTALLED/lib -L /usr/lib/x86_64-linux-gnu"
+```
+
+**Verification**: Check which library is being used:
+```bash
+# Extract and verify system library (should show relocations)
+cd /usr/lib/x86_64-linux-gnu
+ar x libopus.a celt.o
+readelf -r celt.o | grep "R_X86_64_32" && echo "System library has NO PIC"
+
+# Extract and verify vcpkg library (should show no relocations)
+cd $VCPKG_ROOT/installed/x64-linux/lib
+ar x libopus.a celt.c.o
+readelf -r celt.c.o | grep "R_X86_64_32" || echo "vcpkg library has PIC"
+```
+
+### Issue: Opus Still Has PIC Errors After Triplet Fix
+
+**Symptom**: FFmpeg PIC errors are fixed, but opus still has relocation errors.
+
+**Cause**: The default opus portfile doesn't pass `CMAKE_C_FLAGS` and `CMAKE_CXX_FLAGS`, so the `-DPIC` macro from the triplet is not passed to opus.
+
+**Solution**: Modify `res/vcpkg/opus/portfile.cmake` to add:
+```cmake
+"-DCMAKE_C_FLAGS=${VCPKG_C_FLAGS}"
+"-DCMAKE_CXX_FLAGS=${VCPKG_CXX_FLAGS}"
+```
+
+Then rebuild opus:
+```bash
+cd vcpkg
+rm -rf buildtrees/opus packages/opus_x64-linux installed/x64-linux/lib/libopus.*
+./vcpkg install opus:x64-linux --overlay-ports=../res/vcpkg/opus
 ```
 
 ## Why Position Independent Code (PIC)?
@@ -285,10 +375,20 @@ If you encounter issues:
 
 ## Summary
 
-The key to building RustDesk on Ubuntu 18.04 is ensuring all static libraries are compiled with `-fPIC` support by:
+The key to building RustDesk on Ubuntu 18.04 is ensuring all static libraries are compiled with PIC (Position Independent Code) support. This requires **five critical steps**:
 
-1. Configuring vcpkg triplet with `-fPIC` flags
-2. Setting `VCPKG_ROOT` environment variable
-3. Including both `cdylib` and `rlib` in Cargo.toml
+1. **Configure vcpkg triplet with `-fPIC -DPIC`**: Both the compiler flag AND preprocessor macro are required
+   - `-fPIC`: Compiler flag for position-independent code generation
+   - `-DPIC`: Preprocessor macro for FFmpeg/opus assembly code to use PIC-compatible paths
+
+2. **Fix opus portfile**: Pass `CMAKE_C_FLAGS` and `CMAKE_CXX_FLAGS` to ensure `-DPIC` macro reaches opus assembly code
+
+3. **Prioritize vcpkg libraries over system libraries**: Ubuntu 18.04 system libraries are NOT compiled with PIC
+   - vcpkg paths MUST come first in `LIBRARY_PATH`, `LD_LIBRARY_PATH`, and `RUSTFLAGS`
+   - System library libopus.a has absolute relocations that break shared library linking
+
+4. **Set `VCPKG_ROOT` environment variable**: Required by hwcodec build script
+
+5. **Include both `cdylib` and `rlib` in Cargo.toml**: Required for both Flutter FFI and binary targets
 
 These changes enable successful compilation of the shared library (`librustdesk.so`) required for Flutter FFI integration.
