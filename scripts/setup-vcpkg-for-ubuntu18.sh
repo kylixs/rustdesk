@@ -8,6 +8,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Step 5: Setup vcpkg
 echo ""
 echo "Setting up vcpkg..."
+export VCPKG_COMMIT_ID="120deac3062162151622ca4860575a33844ba10b"
+export VCPKG_TRIPLET="${VCPKG_TRIPLET:-x64-linux}"
 export VCPKG_ROOT="$PROJECT_ROOT/vcpkg"
 VCPKG_INSTALLED="$VCPKG_ROOT/installed/$VCPKG_TRIPLET"
 
