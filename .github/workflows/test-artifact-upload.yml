@@ -142,32 +142,20 @@ jobs:
 
           echo "✓ Node.js installed successfully"
 
-      - name: Install npm dependencies
-        run: |
-          npm install @actions/artifact glob
-
-      - name: Verify environment variables before upload
-        run: |
-          echo "=== Verifying environment variables ==="
-          echo "ACTIONS_RUNTIME_TOKEN exists: $([ -n \"$ACTIONS_RUNTIME_TOKEN\" ] && echo YES || echo NO)"
-          echo "ACTIONS_RUNTIME_URL: $ACTIONS_RUNTIME_URL"
-          echo "ACTIONS_RESULTS_URL: $ACTIONS_RESULTS_URL"
-          echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
-          echo "========================================"
-
-      - name: Upload test artifacts using custom script
-        run: |
-          node .github/scripts/upload-artifacts.js \
-            "test-artifacts-ubuntu18-${{ github.run_number }}" \
-            "test-file-*.txt" \
-            "test-file-*.bin" \
-            "build-test.log"
+      - name: Upload test artifacts using v3 action
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-artifacts-ubuntu18-${{ github.run_number }}
+          path: |
+            test-file-*.txt
+            test-file-*.bin
+            build-test.log
 
       - name: Upload logs separately
-        run: |
-          node .github/scripts/upload-artifacts.js \
-            "test-logs-ubuntu18-${{ github.run_number }}" \
-            "*.log"
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-logs-ubuntu18-${{ github.run_number }}
+          path: "*.log"
 
       - name: Test result
         if: success()
