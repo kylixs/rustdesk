@@ -156,16 +156,18 @@ echo ""
 echo "Step 4: Configuring Cargo.toml..."
 cd "$PROJECT_ROOT"
 
-# Check if crate-type contains both "cdylib" and "rlib" (order-independent)
+# Check if crate-type is set to ["cdylib"] for shared library only
+# We only need cdylib (shared library), not rlib, for Flutter integration
 CRATE_TYPE_LINE=$(grep -E '^\s*crate-type\s*=' Cargo.toml || echo "")
 if [ -n "$CRATE_TYPE_LINE" ]; then
-    if echo "$CRATE_TYPE_LINE" | grep -q '"cdylib"' && echo "$CRATE_TYPE_LINE" | grep -q '"rlib"'; then
-        echo "✓ Cargo.toml already configured with cdylib and rlib"
+    if echo "$CRATE_TYPE_LINE" | grep -qE 'crate-type\s*=\s*\["cdylib"\]'; then
+        echo "✓ Cargo.toml already configured with cdylib only (shared library)"
     else
-        echo "Configuring Cargo.toml: setting crate-type = [\"cdylib\", \"rlib\"]"
+        echo "Configuring Cargo.toml: setting crate-type = [\"cdylib\"] (shared library only)"
+        echo "  This simplifies build and reduces compilation time"
         # Replace crate-type line with the correct configuration
-        sed -i 's/^\s*crate-type\s*=.*$/crate-type = ["cdylib", "rlib"]/' Cargo.toml
-        echo "✓ Cargo.toml configured"
+        sed -i 's/^\s*crate-type\s*=.*$/crate-type = ["cdylib"]/' Cargo.toml
+        echo "✓ Cargo.toml configured for shared library build"
     fi
 else
     echo "⚠️  Warning: Could not find crate-type in Cargo.toml"
