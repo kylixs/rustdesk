@@ -14,39 +14,9 @@ on:
           - '5'
 
 jobs:
-  get-github-env:
-    name: Get GitHub Environment Variables
-    runs-on: ubuntu-latest
-    outputs:
-      actions-runtime-token: ${{ steps.export-env.outputs.actions-runtime-token }}
-      actions-runtime-url: ${{ steps.export-env.outputs.actions-runtime-url }}
-      actions-results-url: ${{ steps.export-env.outputs.actions-results-url }}
-    steps:
-      - name: Export GitHub Actions environment variables
-        id: export-env
-        run: |
-          echo "=== All environment variables ==="
-          printenv | sort
-          echo ""
-          echo "=== ACTIONS_ variables ==="
-          printenv | grep ACTIONS_ || echo "No ACTIONS_ vars found"
-          echo ""
-          echo "=== GITHUB_ variables ==="
-          printenv | grep GITHUB_ | head -20
-          echo ""
-          echo "Exporting to GITHUB_OUTPUT..."
-          echo "actions-runtime-token=$ACTIONS_RUNTIME_TOKEN" >> $GITHUB_OUTPUT
-          echo "actions-runtime-url=$ACTIONS_RUNTIME_URL" >> $GITHUB_OUTPUT
-          echo "actions-results-url=$ACTIONS_RESULTS_URL" >> $GITHUB_OUTPUT
-          echo "✓ Environment variables exported to outputs"
-
   test-upload-in-container:
-    needs: get-github-env
-    name: Test Upload in Ubuntu 18 Container
+    name: Test Upload in Ubuntu 18 Container (Two-Stage)
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:18.04
-      options: --privileged
     strategy:
       fail-fast: false
       matrix:
@@ -58,92 +28,54 @@ jobs:
 
     steps:
       - name: Checkout source code
-        run: |
-          apt-get update
-          apt-get install -y git
-          git config --global --add safe.directory $GITHUB_WORKSPACE
-          git clone https://github.com/${{ github.repository }} .
-          git checkout ${{ github.sha }}
-          git submodule update --init --recursive
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Create test files
+      - name: Build in Ubuntu 18.04 container
         run: |
           echo "=========================================="
-          echo "Creating test files in Ubuntu 18.04..."
+          echo "Building in Ubuntu 18.04 container..."
           echo "=========================================="
+
+          # Run container with workspace mounted
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            ubuntu:18.04 \
+            bash -c '
+              echo "Inside Ubuntu 18.04 container"
+              cat /etc/os-release | grep VERSION
+
+              echo ""
+              echo "Creating test files..."
+
+              # Create small text file
+              echo "This is test file 1" > test-file-1.txt
+
+              # Create medium binary file (1MB)
+              dd if=/dev/urandom of=test-file-2.bin bs=1M count=1 2>/dev/null
+
+              # Create large binary file (5MB)
+              dd if=/dev/urandom of=test-file-3.bin bs=1M count=5 2>/dev/null
+
+              # Create log file
+              echo "Build started at $(date)" > build-test.log
+              echo "Test size: ${{ matrix.job.test_size }}" >> build-test.log
+              echo "Built in Ubuntu 18.04 container" >> build-test.log
+
+              ls -lh test-file-* build-test.log
+              echo ""
+              echo "✓ Test files created in container"
+            '
+
           echo ""
+          echo "Back to host machine"
+          ls -lh test-file-* build-test.log
+          echo "✓ Files available on host"
 
-          # Create test files with different sizes
-          echo 'Test file 1 - Small' > test-file-1.txt
-          echo 'This is a small test file from Ubuntu 18.04 container' >> test-file-1.txt
-
-          # Create medium file (1MB)
-          dd if=/dev/zero of=test-file-2.bin bs=1M count=1 2>/dev/null
-          echo "✓ Created test-file-2.bin (1 MB)"
-
-          # Create larger file (5MB)
-          if [ "${{ matrix.job.test_size }}" -ge 3 ]; then
-            dd if=/dev/zero of=test-file-3.bin bs=1M count=5 2>/dev/null
-            echo "✓ Created test-file-3.bin (5 MB)"
-          fi
-
-          # Create a log file
-          echo "Build started at: $(date)" > build-test.log
-          echo "Build architecture: ${{ matrix.job.arch }}" >> build-test.log
-          echo "Build completed successfully" >> build-test.log
-          echo "Total files: ${{ matrix.job.test_size }}" >> build-test.log
-
-          echo ""
-          echo "=========================================="
-          echo "Test files created:"
-          echo "=========================================="
-          ls -lh test-file-* build-test.log 2>/dev/null || echo "No files found"
-          echo ""
-
-      - name: Setup Node.js (outside container)
-        # 注意：这一步会在宿主机上运行，因为 actions/setup-node 不在容器内
-        # 我们需要在容器内手动安装 Node.js
-        run: |
-          echo "Skipping - will install Node.js manually in container"
-
-      - name: Setup GitHub Actions environment variables
-        run: |
-          echo "=== Setting up GitHub Actions environment variables ==="
-          echo "Received from get-github-env job:"
-          echo "  ACTIONS_RUNTIME_TOKEN: [MASKED]"
-          echo "  ACTIONS_RUNTIME_URL: ${{ needs.get-github-env.outputs.actions-runtime-url }}"
-          echo "  ACTIONS_RESULTS_URL: ${{ needs.get-github-env.outputs.actions-results-url }}"
-          echo ""
-          echo "Exporting to GITHUB_ENV..."
-          echo "ACTIONS_RUNTIME_TOKEN=${{ needs.get-github-env.outputs.actions-runtime-token }}" >> $GITHUB_ENV
-          echo "ACTIONS_RUNTIME_URL=${{ needs.get-github-env.outputs.actions-runtime-url }}" >> $GITHUB_ENV
-          echo "ACTIONS_RESULTS_URL=${{ needs.get-github-env.outputs.actions-results-url }}" >> $GITHUB_ENV
-          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
-          echo "✓ Environment variables exported"
-          echo "========================================"
-
-      - name: Install Node.js in container
-        run: |
-          echo "Installing Node.js 16 in Ubuntu 18.04 container..."
-
-          # 更新包列表
-          apt-get update
-
-          # 安装必要工具
-          apt-get install -y curl ca-certificates
-
-          # 安装 Node.js 16
-          curl -fsSL https://deb.nodesource.com/setup_16.x | bash -
-          apt-get install -y nodejs
-
-          # 验证安装
-          node --version
-          npm --version
-
-          echo "✓ Node.js installed successfully"
-
-      - name: Upload test artifacts using v3 action
-        uses: actions/upload-artifact@v3
+      - name: Upload test artifacts from host
+        uses: actions/upload-artifact@v4
         with:
           name: test-artifacts-ubuntu18-${{ github.run_number }}
           path: |
@@ -151,8 +83,8 @@ jobs:
             test-file-*.bin
             build-test.log
 
-      - name: Upload logs separately
-        uses: actions/upload-artifact@v3
+      - name: Upload logs separately from host
+        uses: actions/upload-artifact@v4
         with:
           name: test-logs-ubuntu18-${{ github.run_number }}
           path: "*.log"
@@ -160,17 +92,10 @@ jobs:
       - name: Test result
         if: success()
         run: |
-          echo ""
           echo "=========================================="
-          echo "✅ Test Completed Successfully!"
+          echo "✓ Test PASSED"
           echo "=========================================="
-          echo ""
-          echo "Artifacts uploaded:"
-          echo "  - test-artifacts-ubuntu18-${{ github.run_number }}"
-          echo "  - test-logs-ubuntu18-${{ github.run_number }}"
-          echo ""
-          echo "You can download them from the Actions tab."
-          echo ""
+          echo "Successfully built in Ubuntu 18.04 container and uploaded from host!"
 
       - name: Cleanup test files
         if: always()
@@ -191,11 +116,8 @@ jobs:
       - name: Create test files
         run: |
           echo "Creating test files..."
-
-          echo 'Native test file' > native-test.txt
-          echo 'Build timestamp: '$(date) > native-build.log
-
-          ls -lh native-*.txt native-*.log
+          echo "Native test file" > native-test.txt
+          echo "Test log from native environment" > native-test.log
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -213,7 +135,7 @@ jobs:
       - name: Test result
         if: success()
         run: |
-          echo "✅ Native upload test completed successfully!"
+          echo "✓ Native environment test PASSED"
 
       - name: Cleanup
         if: always()
