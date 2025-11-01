@@ -13,6 +13,15 @@ echo "Docker Ubuntu 18.04 Environment"
 echo "==========================================="
 echo ""
 
+# ===== 安装 sudo（如果不存在，用于 Docker 容器） =====
+if ! command -v sudo &> /dev/null; then
+    echo "检测到 sudo 未安装（Docker 容器环境），正在安装..."
+    apt-get update -y
+    apt-get install -y sudo
+    echo "✓ sudo 已安装"
+    echo ""
+fi
+
 # ===== 获取 sudo 权限 =====
 if [[ $EUID -ne 0 ]]; then
     echo "此脚本需要 sudo 权限来安装系统依赖..."
