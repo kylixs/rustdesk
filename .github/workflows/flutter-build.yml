@@ -1745,7 +1745,7 @@ jobs:
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain ${{ env.RUST_VERSION }} -y
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          source "$HOME/.cargo/env"
+          . "$HOME/.cargo/env"
           rustup target add ${{ matrix.job.target }}
 
       - name: Disable rust bridge build
@@ -1762,7 +1762,7 @@ jobs:
 
       - name: Install vcpkg dependencies
         run: |
-          source "$HOME/.cargo/env"
+          . "$HOME/.cargo/env"
           export PATH="/opt/flutter/bin:$PATH"
           export VCPKG_ROOT="$GITHUB_WORKSPACE/vcpkg"
 
@@ -1773,7 +1773,7 @@ jobs:
 
       - name: Build RustDesk
         run: |
-          source "$HOME/.cargo/env"
+          . "$HOME/.cargo/env"
           export PATH="/opt/flutter/bin:$PATH"
           export VCPKG_ROOT="$GITHUB_WORKSPACE/vcpkg"
 

@@ -138,7 +138,7 @@ if ! command -v rustc &> /dev/null; then
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain $RUST_VERSION
 fi
 
-source $HOME/.cargo/env
+. $HOME/.cargo/env
 rustup toolchain install $RUST_VERSION
 rustup default $RUST_VERSION
 rustup target add $TARGET

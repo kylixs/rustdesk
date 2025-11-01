@@ -39,7 +39,7 @@ export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:$VCPKG_INSTALLED/include"
 
 # Source cargo environment if exists
 if [ -f "$HOME/.cargo/env" ]; then
-    source "$HOME/.cargo/env"
+    . "$HOME/.cargo/env"
 fi
 
 # Add library paths for Rust linker (vcpkg first to override system libs without PIC)
