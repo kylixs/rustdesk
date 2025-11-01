@@ -46,6 +46,8 @@ fi
 # Step 3: Ensure Flutter dependencies are installed
 echo ""
 echo "Step 2: Installing Flutter dependencies..."
+
+git config --global --add safe.directory /opt/flutter
 cd $WORKSPACE/flutter
 flutter pub get
 cd $WORKSPACE
