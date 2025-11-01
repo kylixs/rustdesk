@@ -12,9 +12,6 @@ on:
           - '1'
           - '3'
           - '5'
-  push:
-    branches:
-      - test-artifact-upload
 
 jobs:
   test-upload-in-container:
@@ -23,11 +20,6 @@ jobs:
     container:
       image: ubuntu:18.04
       options: --privileged
-      env:
-        ACTIONS_RUNTIME_TOKEN: ${{ env.ACTIONS_RUNTIME_TOKEN }}
-        ACTIONS_RUNTIME_URL: ${{ env.ACTIONS_RUNTIME_URL }}
-        ACTIONS_RESULTS_URL: ${{ env.ACTIONS_RESULTS_URL }}
-        GITHUB_RUN_ID: ${{ github.run_id }}
     strategy:
       fail-fast: false
       matrix:
@@ -87,14 +79,21 @@ jobs:
         run: |
           echo "Skipping - will install Node.js manually in container"
 
-      - name: Debug environment variables
+      - name: Debug and export environment variables
         run: |
           echo "=== Debugging Environment Variables ==="
           echo "ACTIONS_RUNTIME_TOKEN exists: $([ -n \"$ACTIONS_RUNTIME_TOKEN\" ] && echo YES || echo NO)"
           echo "ACTIONS_RUNTIME_URL: $ACTIONS_RUNTIME_URL"
           echo "ACTIONS_RESULTS_URL: $ACTIONS_RESULTS_URL"
           echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
+          echo ""
+          echo "All ACTIONS_ variables:"
           printenv | grep ACTIONS_ || true
+          echo ""
+          echo "Exporting to GITHUB_ENV..."
+          echo "ACTIONS_RUNTIME_TOKEN=$ACTIONS_RUNTIME_TOKEN" >> $GITHUB_ENV
+          echo "ACTIONS_RUNTIME_URL=$ACTIONS_RUNTIME_URL" >> $GITHUB_ENV
+          echo "ACTIONS_RESULTS_URL=$ACTIONS_RESULTS_URL" >> $GITHUB_ENV
           echo "========================================"
 
       - name: Install Node.js in container
