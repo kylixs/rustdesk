@@ -29,7 +29,23 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Cache generated bridge files
+        id: cache-bridge
+        uses: actions/cache@v3
+        with:
+          path: |
+            ./src/bridge_generated.rs
+            ./src/bridge_generated.io.rs
+            ./flutter/lib/generated_bridge.dart
+            ./flutter/lib/generated_bridge.freezed.dart
+            ./flutter/macos/Runner/bridge_generated.h
+            ./flutter/ios/Runner/bridge_generated.h
+          key: bridge-${{ hashFiles('src/flutter_ffi.rs') }}-frb-${{ env.FLUTTER_RUST_BRIDGE_VERSION }}-flutter-${{ env.FLUTTER_VERSION }}
+          restore-keys: |
+            bridge-${{ hashFiles('src/flutter_ffi.rs') }}-
+
       - name: Install prerequisites
+        if: steps.cache-bridge.outputs.cache-hit != 'true'
         run: |
           sudo apt-get install ca-certificates -y
           sudo apt-get update -y
@@ -49,6 +65,7 @@ jobs:
             wget
 
       - name: Install Rust toolchain
+        if: steps.cache-bridge.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -56,23 +73,9 @@ jobs:
           components: "rustfmt"
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.cache-bridge.outputs.cache-hit != 'true'
         with:
           prefix-key: bridge-${{ matrix.job.os }}
-
-      - name: Cache generated bridge files
-        id: cache-bridge
-        uses: actions/cache@v3
-        with:
-          path: |
-            ./src/bridge_generated.rs
-            ./src/bridge_generated.io.rs
-            ./flutter/lib/generated_bridge.dart
-            ./flutter/lib/generated_bridge.freezed.dart
-            ./flutter/macos/Runner/bridge_generated.h
-            ./flutter/ios/Runner/bridge_generated.h
-          key: bridge-${{ hashFiles('src/flutter_ffi.rs') }}-frb-${{ env.FLUTTER_RUST_BRIDGE_VERSION }}-flutter-${{ env.FLUTTER_VERSION }}
-          restore-keys: |
-            bridge-${{ hashFiles('src/flutter_ffi.rs') }}-
 
       - name: Install flutter
         if: steps.cache-bridge.outputs.cache-hit != 'true'
