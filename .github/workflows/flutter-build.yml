@@ -1671,12 +1671,12 @@ jobs:
 
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
         with:
           submodules: recursive
 
       - name: Cache vcpkg dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v3
         with:
           path: |
             vcpkg/installed
@@ -1778,14 +1778,14 @@ jobs:
           ls -lh build/linux/x64/release/bundle/ || true
 
       - name: Upload Ubuntu 18 Debian package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-ubuntu18.deb
           path: rustdesk-*-ubuntu18.deb
 
       - name: Upload build log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: build-log-ubuntu18-${{ matrix.job.arch }}
           path: build.log
