@@ -14,7 +14,7 @@ version = "1.4.3-jlc16"
 
 [lib]
 name = "librustdesk"
-crate-type = ["cdylib", "staticlib", "rlib"]
+crate-type = ["cdylib"]
 
 [[bin]]
 name = "naming"

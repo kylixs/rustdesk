@@ -87,6 +87,15 @@ jobs:
         run: |
           echo "Skipping - will install Node.js manually in container"
 
+      - name: Debug environment variables
+        run: |
+          echo "=== Debugging Environment Variables ==="
+          echo "ACTIONS_RUNTIME_TOKEN: ${ACTIONS_RUNTIME_TOKEN:0:10}..."
+          echo "ACTIONS_RUNTIME_URL: $ACTIONS_RUNTIME_URL"
+          echo "ACTIONS_RESULTS_URL: $ACTIONS_RESULTS_URL"
+          echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
+          echo "========================================"
+
       - name: Install Node.js in container
         run: |
           echo "Installing Node.js 16 in Ubuntu 18.04 container..."

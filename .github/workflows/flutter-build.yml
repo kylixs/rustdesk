@@ -1670,19 +1670,13 @@ jobs:
             }
 
     steps:
-      - name: Install git
+      - name: Checkout source code
         run: |
           apt-get update
           apt-get install -y git
-
-      - name: Clone main repository
-        run: |
           git config --global --add safe.directory $GITHUB_WORKSPACE
           git clone https://github.com/${{ github.repository }} .
           git checkout ${{ github.sha }}
-
-      - name: Checkout submodules
-        run: |
           git submodule update --init --recursive
 
       - name: Cache vcpkg dependencies
