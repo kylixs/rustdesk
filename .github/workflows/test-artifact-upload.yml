@@ -14,7 +14,24 @@ on:
           - '5'
 
 jobs:
+  get-github-env:
+    name: Get GitHub Environment Variables
+    runs-on: ubuntu-latest
+    outputs:
+      actions-runtime-token: ${{ steps.export-env.outputs.actions-runtime-token }}
+      actions-runtime-url: ${{ steps.export-env.outputs.actions-runtime-url }}
+      actions-results-url: ${{ steps.export-env.outputs.actions-results-url }}
+    steps:
+      - name: Export GitHub Actions environment variables
+        id: export-env
+        run: |
+          echo "actions-runtime-token=$ACTIONS_RUNTIME_TOKEN" >> $GITHUB_OUTPUT
+          echo "actions-runtime-url=$ACTIONS_RUNTIME_URL" >> $GITHUB_OUTPUT
+          echo "actions-results-url=$ACTIONS_RESULTS_URL" >> $GITHUB_OUTPUT
+          echo "✓ Environment variables exported to outputs"
+
   test-upload-in-container:
+    needs: get-github-env
     name: Test Upload in Ubuntu 18 Container
     runs-on: ubuntu-latest
     container:
@@ -79,21 +96,20 @@ jobs:
         run: |
           echo "Skipping - will install Node.js manually in container"
 
-      - name: Debug and export environment variables
+      - name: Setup GitHub Actions environment variables
         run: |
-          echo "=== Debugging Environment Variables ==="
-          echo "ACTIONS_RUNTIME_TOKEN exists: $([ -n \"$ACTIONS_RUNTIME_TOKEN\" ] && echo YES || echo NO)"
-          echo "ACTIONS_RUNTIME_URL: $ACTIONS_RUNTIME_URL"
-          echo "ACTIONS_RESULTS_URL: $ACTIONS_RESULTS_URL"
-          echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
-          echo ""
-          echo "All ACTIONS_ variables:"
-          printenv | grep ACTIONS_ || true
+          echo "=== Setting up GitHub Actions environment variables ==="
+          echo "Received from get-github-env job:"
+          echo "  ACTIONS_RUNTIME_TOKEN: [MASKED]"
+          echo "  ACTIONS_RUNTIME_URL: ${{ needs.get-github-env.outputs.actions-runtime-url }}"
+          echo "  ACTIONS_RESULTS_URL: ${{ needs.get-github-env.outputs.actions-results-url }}"
           echo ""
           echo "Exporting to GITHUB_ENV..."
-          echo "ACTIONS_RUNTIME_TOKEN=$ACTIONS_RUNTIME_TOKEN" >> $GITHUB_ENV
-          echo "ACTIONS_RUNTIME_URL=$ACTIONS_RUNTIME_URL" >> $GITHUB_ENV
-          echo "ACTIONS_RESULTS_URL=$ACTIONS_RESULTS_URL" >> $GITHUB_ENV
+          echo "ACTIONS_RUNTIME_TOKEN=${{ needs.get-github-env.outputs.actions-runtime-token }}" >> $GITHUB_ENV
+          echo "ACTIONS_RUNTIME_URL=${{ needs.get-github-env.outputs.actions-runtime-url }}" >> $GITHUB_ENV
+          echo "ACTIONS_RESULTS_URL=${{ needs.get-github-env.outputs.actions-results-url }}" >> $GITHUB_ENV
+          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+          echo "✓ Environment variables exported"
           echo "========================================"
 
       - name: Install Node.js in container
@@ -119,6 +135,15 @@ jobs:
       - name: Install npm dependencies
         run: |
           npm install @actions/artifact glob
+
+      - name: Verify environment variables before upload
+        run: |
+          echo "=== Verifying environment variables ==="
+          echo "ACTIONS_RUNTIME_TOKEN exists: $([ -n \"$ACTIONS_RUNTIME_TOKEN\" ] && echo YES || echo NO)"
+          echo "ACTIONS_RUNTIME_URL: $ACTIONS_RUNTIME_URL"
+          echo "ACTIONS_RESULTS_URL: $ACTIONS_RESULTS_URL"
+          echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
+          echo "========================================"
 
       - name: Upload test artifacts using custom script
         run: |
