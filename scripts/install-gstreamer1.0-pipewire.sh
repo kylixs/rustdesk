@@ -34,7 +34,7 @@ sudo apt update
 # Install gstreamer1.0-pipewire
 echo ""
 echo "Installing PipeWire packages..."
-sudo apt install -y pipewire pipewire-audio-client-libraries gstreamer1.0-pipewire
+sudo apt install -y pipewire pipewire-audio-client-libraries gstreamer1.0-pipewire libgstreamer1.0-dev
 
 echo ""
 echo "✓ gstreamer1.0-pipewire installation completed!"
