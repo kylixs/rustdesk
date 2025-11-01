@@ -1708,14 +1708,20 @@ jobs:
             libpulse-dev libva-dev libvdpau-dev libxcb-randr0-dev \
             libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev libxfixes-dev \
             llvm-10-dev nasm ninja-build pkg-config \
-            python3 python3-pip python3.8 python3.8-dev python3.8-distutils \
+            python3 python3-pip \
             software-properties-common bc
-          # Upgrade Python to 3.8
+
+          # install gstreamer1.0-pipewire
+          bash scripts/install-gstreamer1.0-pipewire.sh
+
+      - name: Upgrade Python to 3.8
+        run: |
+          add-apt-repository -y ppa:deadsnakes/ppa
+          apt-get update
+          apt-get install -y python3.8 python3.8-dev python3.8-distutils
           update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
           update-alternatives --set python3 /usr/bin/python3.8
           python3 --version
-          # install gstreamer1.0-pipewire
-          bash scripts/install-gstreamer1.0-pipewire.sh
 
       - name: Install Rust toolchain
         run: |
