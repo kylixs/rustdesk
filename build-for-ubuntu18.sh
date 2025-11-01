@@ -29,8 +29,9 @@ export VCPKG_INSTALLED="$VCPKG_ROOT/installed/$VCPKG_TRIPLET"
 export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-gnu/pkgconfig:$VCPKG_INSTALLED/lib/pkgconfig:$PKG_CONFIG_PATH"
 
 # Set library paths for runtime linking
-export LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:$VCPKG_INSTALLED/lib:$LIBRARY_PATH"
-export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:$VCPKG_INSTALLED/lib:$LD_LIBRARY_PATH"
+# IMPORTANT: vcpkg libs FIRST to override system libs (system libs don't have PIC)
+export LIBRARY_PATH="$VCPKG_INSTALLED/lib:/usr/lib/x86_64-linux-gnu:$LIBRARY_PATH"
+export LD_LIBRARY_PATH="$VCPKG_INSTALLED/lib:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH"
 
 # Append vcpkg include paths (compiler uses default paths first, then these)
 export C_INCLUDE_PATH="$C_INCLUDE_PATH:$VCPKG_INSTALLED/include"
@@ -41,12 +42,16 @@ if [ -f "$HOME/.cargo/env" ]; then
     source "$HOME/.cargo/env"
 fi
 
-# Add library paths for Rust linker (system first for GTK/X11)
-export RUSTFLAGS="-L /usr/lib/x86_64-linux-gnu -L $VCPKG_INSTALLED/lib"
+# Add library paths for Rust linker (vcpkg first to override system libs without PIC)
+export RUSTFLAGS="-L $VCPKG_INSTALLED/lib -L /usr/lib/x86_64-linux-gnu"
 
-# Use system default compiler settings
-# unset CFLAGS
-# unset CXXFLAGS
+# Set compiler flags for PIC (required for shared library linking, especially for hwcodec FFmpeg)
+export CFLAGS="-fPIC"
+export CXXFLAGS="-fPIC"
+export ASFLAGS="-fPIC"
+# Target-specific flags for cc crate (underscores instead of hyphens)
+#export CFLAGS_x86_64_unknown_linux_gnu="-fPIC"
+#export CXXFLAGS_x86_64_unknown_linux_gnu="-fPIC"
 export CC="gcc"
 export CXX="g++"
 
