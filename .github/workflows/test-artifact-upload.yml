@@ -33,6 +33,13 @@ jobs:
             }
 
     steps:
+      - name: Export GitHub Actions environment variables
+        uses: actions/github-script@v6
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
       - name: Checkout source code
         run: |
           apt-get update
@@ -108,13 +115,6 @@ jobs:
           npm install @actions/artifact glob
           echo "✓ Dependencies installed"
 
-      - name: Export GitHub Actions environment variables
-        run: |
-          echo "ACTIONS_RUNTIME_URL=$ACTIONS_RUNTIME_URL" >> $GITHUB_ENV
-          echo "ACTIONS_RUNTIME_TOKEN=$ACTIONS_RUNTIME_TOKEN" >> $GITHUB_ENV
-          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID" >> $GITHUB_ENV
-          echo "✓ Environment variables exported"
-
       - name: Upload test artifacts using custom script
         run: |
           echo "=========================================="
@@ -166,6 +166,13 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
+      - name: Export GitHub Actions environment variables
+        uses: actions/github-script@v6
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
@@ -188,13 +195,6 @@ jobs:
       - name: Install dependencies
         run: |
           npm install @actions/artifact glob
-
-      - name: Export GitHub Actions environment variables
-        run: |
-          echo "ACTIONS_RUNTIME_URL=$ACTIONS_RUNTIME_URL" >> $GITHUB_ENV
-          echo "ACTIONS_RUNTIME_TOKEN=$ACTIONS_RUNTIME_TOKEN" >> $GITHUB_ENV
-          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID" >> $GITHUB_ENV
-          echo "✓ Environment variables exported"
 
       - name: Upload artifacts
         run: |
