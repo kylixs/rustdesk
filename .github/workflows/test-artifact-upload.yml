@@ -90,10 +90,11 @@ jobs:
       - name: Debug environment variables
         run: |
           echo "=== Debugging Environment Variables ==="
-          echo "ACTIONS_RUNTIME_TOKEN: ${ACTIONS_RUNTIME_TOKEN:0:10}..."
+          echo "ACTIONS_RUNTIME_TOKEN exists: $([ -n \"$ACTIONS_RUNTIME_TOKEN\" ] && echo YES || echo NO)"
           echo "ACTIONS_RUNTIME_URL: $ACTIONS_RUNTIME_URL"
           echo "ACTIONS_RESULTS_URL: $ACTIONS_RESULTS_URL"
           echo "GITHUB_RUN_ID: $GITHUB_RUN_ID"
+          printenv | grep ACTIONS_ || true
           echo "========================================"
 
       - name: Install Node.js in container
