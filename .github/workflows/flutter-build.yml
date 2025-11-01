@@ -1699,7 +1699,6 @@ jobs:
 
       - name: Install base dependencies
         run: |
-          add-apt-repository -y ppa:deadsnakes/ppa
           apt-get update
           apt-get install -y \
             sudo curl zip unzip tar git tree wget ca-certificates \
