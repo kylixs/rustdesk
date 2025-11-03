@@ -31,6 +31,15 @@ else()
     )
 endif()
 
+# Fix AVX2 compatibility for Ubuntu 18.04
+vcpkg_replace_string("${SOURCE_PATH}/aom_dsp/flow_estimation/x86/disflow_avx2.c"
+    "#include \"aom_dsp/flow_estimation/disflow.h\""
+    "#include \"aom_dsp/flow_estimation/disflow.h\"
+#ifndef _mm256_set_m128i
+#define _mm256_set_m128i(hi, lo) _mm256_insertf128_si256(_mm256_castsi128_si256(lo), (hi), 1)
+#endif"
+)
+
 set(aom_target_cpu "")
 if(VCPKG_TARGET_IS_UWP OR (VCPKG_TARGET_IS_WINDOWS AND VCPKG_TARGET_ARCHITECTURE MATCHES "^arm"))
     # UWP + aom's assembler files result in weirdness and build failures
