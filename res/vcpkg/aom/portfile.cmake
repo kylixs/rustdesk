@@ -1,46 +1,79 @@
-vcpkg_from_github(
-    OUT_SOURCE_PATH SOURCE_PATH
-    REPO kylixs/aom
-    REF main
-    SHA512 f93c4c6cd5934e24fc0be91b1ed15b88fd19dbffffcd38e90ea08af9c779947c410e80c654b9f132492bb954d3c9217417d6534d8bc81728da3aeff0b10f4801
-    HEAD_REF main
-)
+# NASM is required to build AOM
+vcpkg_find_acquire_program(NASM)
+get_filename_component(NASM_EXE_PATH ${NASM} DIRECTORY)
+vcpkg_add_to_path(${NASM_EXE_PATH})
 
-# Fix AVX2 compatibility for Ubuntu 18.04
-vcpkg_replace_string("${SOURCE_PATH}/aom_dsp/flow_estimation/x86/disflow_avx2.c"
-    "#include \"aom_dsp/flow_estimation/disflow.h\""
-    "#include \"aom_dsp/flow_estimation/disflow.h\"
-#ifndef _mm256_set_m128i
-#define _mm256_set_m128i(hi, lo) _mm256_insertf128_si256(_mm256_castsi128_si256(lo), (hi), 1)
-#endif"
-)
+# Perl is required to build AOM
+vcpkg_find_acquire_program(PERL)
+get_filename_component(PERL_PATH ${PERL} DIRECTORY)
+vcpkg_add_to_path(${PERL_PATH})
+
+if(DEFINED ENV{USE_AOM_391})
+    vcpkg_from_git(
+        OUT_SOURCE_PATH SOURCE_PATH
+        URL "https://github.com/kylixs/aom.git"
+        REF 8ad484f8a18ed1853c094e7d3a4e023b2a92df28 # 3.9.1
+        PATCHES
+            aom-uninitialized-pointer.diff
+            aom-avx2.diff
+            aom-install.diff
+    )
+else()
+    vcpkg_from_git(
+        OUT_SOURCE_PATH SOURCE_PATH
+        URL "https://github.com/kylixs/aom.git"
+        REF 10aece4157eb79315da205f39e19bf6ab3ee30d0 # 3.12.1
+        PATCHES
+            aom-uninitialized-pointer.diff
+            # aom-avx2.diff
+            # Can be dropped when https://bugs.chromium.org/p/aomedia/issues/detail?id=3029 is merged into the upstream
+            aom-install.diff
+    )
+endif()
+
+set(aom_target_cpu "")
+if(VCPKG_TARGET_IS_UWP OR (VCPKG_TARGET_IS_WINDOWS AND VCPKG_TARGET_ARCHITECTURE MATCHES "^arm"))
+    # UWP + aom's assembler files result in weirdness and build failures
+    # Also, disable assembly on ARM and ARM64 Windows to fix compilation issues.
+    set(aom_target_cpu "-DAOM_TARGET_CPU=generic")
+endif()
+
+if(VCPKG_TARGET_ARCHITECTURE STREQUAL "arm" AND VCPKG_TARGET_IS_LINUX)
+  set(aom_target_cpu "-DENABLE_NEON=OFF")
+endif()
 
 vcpkg_cmake_configure(
-    SOURCE_PATH "${SOURCE_PATH}"
+    SOURCE_PATH ${SOURCE_PATH}
     OPTIONS
-        -DCMAKE_BUILD_TYPE=Release
+        ${aom_target_cpu}
         -DENABLE_DOCS=OFF
         -DENABLE_EXAMPLES=OFF
         -DENABLE_TESTDATA=OFF
         -DENABLE_TESTS=OFF
         -DENABLE_TOOLS=OFF
-        -DCONFIG_AV1_DECODER=1
-        -DCONFIG_AV1_ENCODER=1
-        -DCONFIG_MULTITHREAD=0
-        -DCONFIG_RUNTIME_CPU_DETECT=0
-        -DAOM_TARGET_CPU=generic
-        -DENABLE_AVX2=OFF
-        -DENABLE_SSE4_1=OFF
-        -DENABLE_SSSE3=OFF
 )
 
 vcpkg_cmake_install()
 
-# Fix cmake config path issue
-if(EXISTS "${CURRENT_PACKAGES_DIR}/lib/cmake/aom")
-    vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/aom)
-endif()
+vcpkg_copy_pdbs()
 
 vcpkg_fixup_pkgconfig()
 
-file(INSTALL "${SOURCE_PATH}/LICENSE" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
+if(VCPKG_TARGET_IS_WINDOWS)
+  vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/lib/pkgconfig/aom.pc" " -lm" "")
+  if(NOT VCPKG_BUILD_TYPE)
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/aom.pc" " -lm" "")
+  endif()
+endif()
+
+# Move cmake configs
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/${PORT})
+
+# Remove duplicate files
+file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include
+                    ${CURRENT_PACKAGES_DIR}/debug/share)
+
+# Handle copyright
+file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+
+vcpkg_fixup_pkgconfig()

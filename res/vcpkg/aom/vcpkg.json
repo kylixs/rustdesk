@@ -1,7 +1,10 @@
 {
   "name": "aom",
-  "version": "3.0.0",
-  "description": "AV1 codec library - Ubuntu 18.04 compatible",
+  "version-semver": "3.12.1",
+  "port-version": 0,
+  "description": "AV1 codec library",
+  "homepage": "https://aomedia.googlesource.com/aom",
+  "license": "BSD-2-Clause",
   "dependencies": [
     {
       "name": "vcpkg-cmake",
