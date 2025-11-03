@@ -30,26 +30,30 @@ show_help() {
     echo "Usage: ./scripts/set-version.sh <version> [build-number]"
     echo ""
     echo "Examples:"
-    echo "  ./scripts/set-version.sh 1.4.4 62"
-    echo "  ./scripts/set-version.sh 1.5.0 100"
+    echo "  ./scripts/set-version.sh 1.4.4-jlc18 62"
+    echo "  ./scripts/set-version.sh 1.5.0-rc1 100"
     echo "  ./scripts/set-version.sh 1.4.3-jlc11"
-    echo "  ./scripts/set-version.sh 1.4.3-rc.1+build.123 65"
+    echo "  ./scripts/set-version.sh 1.4.3-beta2 65"
     echo ""
     echo "Description:"
     echo "  This script will update version numbers in the following locations:"
     echo "  1. Cargo.toml [package] version (Rust version: x.y.z-suffix)"
     echo "  2. Cargo.toml [workspace.package] version (workspace version)"
-    echo "  3. flutter/pubspec.yaml version (Flutter version: x.y.z+build)"
+    echo "  3. flutter/pubspec.yaml version (Flutter version: x.y.z-suffix+build)"
     echo "  4. libs/portable/Cargo.toml version"
     echo "  5. GitHub workflow files (.github/workflows/flutter-build.yml, playground.yml, winget.yml)"
     echo "  6. AppImage builder files (appimage/AppImageBuilder-*.yml)"
     echo "  7. Package spec files (res/PKGBUILD, res/*.spec)"
     echo ""
-    echo "Version format:"
-    echo "  - Cargo: x.y.z-suffix (e.g., 1.4.3-jlc13)"
-    echo "  - Flutter: x.y.z-suffix+build (e.g., 1.4.3-jlc14+62)"
-    echo "  - The script automatically uses full version for Flutter"
-    echo "  - Build number is optional, defaults to auto-increment or manual input"
+    echo "Version format (STRICT):"
+    echo "  Required format: x.y.z-suffix"
+    echo "  - x.y.z must be numbers (e.g., 1.4.3)"
+    echo "  - suffix must be alphanumeric only (e.g., jlc17, rc1, beta2)"
+    echo "  - NO dots or special characters allowed in suffix"
+    echo "  - Suffix is REQUIRED (cannot be omitted)"
+    echo ""
+    echo "  Examples: 1.4.3-jlc13, 1.4.3-rc1, 1.5.0-beta2"
+    echo "  Build number is optional, defaults to auto-increment or manual input"
     exit 0
 }
 
@@ -61,14 +65,25 @@ fi
 NEW_VERSION="$1"
 BUILD_NUMBER="$2"
 
-# Validate version format (supports SemVer 2.0: x.y.z[-prerelease][+build])
-if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+# Validate version format (strict format: x.y.z-suffix)
+# Only allows: digits.digits.digits-alphanumeric
+# This prevents complex versions like 1.4.3-rc.1+build.123
+if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z]+$'; then
     echo -e "${RED}[ERROR] Invalid version format${NC}"
-    echo -e "${YELLOW}Supported formats:${NC}"
-    echo -e "${GRAY}  1.4.3${NC}"
-    echo -e "${GRAY}  1.4.3-alpha${NC}"
-    echo -e "${GRAY}  1.4.3-jlc11${NC}"
-    echo -e "${GRAY}  1.4.3-rc.1+build.123${NC}"
+    echo -e "${YELLOW}Required format: x.y.z-suffix${NC}"
+    echo -e "${YELLOW}Where:${NC}"
+    echo -e "${YELLOW}  x.y.z must be numbers (e.g., 1.4.3)${NC}"
+    echo -e "${YELLOW}  suffix must be alphanumeric without dots or special chars (e.g., jlc17, rc1, beta2)${NC}"
+    echo ""
+    echo -e "${YELLOW}Valid examples:${NC}"
+    echo -e "${GRAY}  1.4.3-jlc17${NC}"
+    echo -e "${GRAY}  1.4.3-rc1${NC}"
+    echo -e "${GRAY}  1.4.3-beta2${NC}"
+    echo ""
+    echo -e "${RED}Invalid examples:${NC}"
+    echo -e "${GRAY}  1.4.3 (missing suffix)${NC}"
+    echo -e "${GRAY}  1.4.3-rc.1 (dots not allowed in suffix)${NC}"
+    echo -e "${GRAY}  1.4.3-jlc17+123 (build metadata not allowed)${NC}"
     exit 1
 fi
 

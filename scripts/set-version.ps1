@@ -15,37 +15,52 @@ if ($Help -or $NewVersion -eq "-h" -or $NewVersion -eq "--help" -or [string]::Is
     Write-Host "Usage: .\scripts\set-version.ps1 <version> [build-number]"
     Write-Host ""
     Write-Host "Examples:"
-    Write-Host "  .\scripts\set-version.ps1 1.4.4 62"
-    Write-Host "  .\scripts\set-version.ps1 1.5.0 100"
+    Write-Host "  .\scripts\set-version.ps1 1.4.4-jlc18 62"
+    Write-Host "  .\scripts\set-version.ps1 1.5.0-rc1 100"
     Write-Host "  .\scripts\set-version.ps1 1.4.3-jlc11"
-    Write-Host "  .\scripts\set-version.ps1 1.4.3-rc.1+build.123 65"
+    Write-Host "  .\scripts\set-version.ps1 1.4.3-beta2 65"
     Write-Host ""
     Write-Host "Description:"
     Write-Host "  This script will update version numbers in the following locations:"
     Write-Host "  1. Cargo.toml [package] version (Rust version: x.y.z-suffix)"
     Write-Host "  2. Cargo.toml [workspace.package] version (workspace version)"
-    Write-Host "  3. flutter/pubspec.yaml version (Flutter version: x.y.z+build)"
+    Write-Host "  3. flutter/pubspec.yaml version (Flutter version: x.y.z-suffix+build)"
     Write-Host "  4. libs/portable/Cargo.toml version"
     Write-Host "  5. GitHub workflow files (.github/workflows/flutter-build.yml, playground.yml, winget.yml)"
     Write-Host "  6. AppImage builder files (appimage/AppImageBuilder-*.yml)"
     Write-Host "  7. Package spec files (res/PKGBUILD, res/*.spec)"
     Write-Host ""
-    Write-Host "Version format:"
-    Write-Host "  - Cargo: x.y.z-suffix (e.g., 1.4.3-jlc13)"
-    Write-Host "  - Flutter: x.y.z+build (e.g., 1.4.3+62)"
-    Write-Host "  - The script automatically extracts x.y.z for Flutter"
-    Write-Host "  - Build number is optional, defaults to auto-increment or manual input"
+    Write-Host "Version format (STRICT):"
+    Write-Host "  Required format: x.y.z-suffix"
+    Write-Host "  - x.y.z must be numbers (e.g., 1.4.3)"
+    Write-Host "  - suffix must be alphanumeric only (e.g., jlc17, rc1, beta2)"
+    Write-Host "  - NO dots or special characters allowed in suffix"
+    Write-Host "  - Suffix is REQUIRED (cannot be omitted)"
+    Write-Host ""
+    Write-Host "  Examples: 1.4.3-jlc13, 1.4.3-rc1, 1.5.0-beta2"
+    Write-Host "  Build number is optional, defaults to auto-increment or manual input"
     exit 0
 }
 
-# Validate version format (supports SemVer 2.0: x.y.z[-prerelease][+build])
-if ($NewVersion -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z\-.]+)?(\+[0-9A-Za-z\-.]+)?$') {
+# Validate version format (strict format: x.y.z-suffix)
+# Only allows: digits.digits.digits-alphanumeric
+# This prevents complex versions like 1.4.3-rc.1+build.123
+if ($NewVersion -notmatch '^\d+\.\d+\.\d+-[0-9A-Za-z]+$') {
     Write-Host "[ERROR] Invalid version format" -ForegroundColor Red
-    Write-Host "Supported formats:" -ForegroundColor Yellow
-    Write-Host "  1.4.3" -ForegroundColor Gray
-    Write-Host "  1.4.3-alpha" -ForegroundColor Gray
-    Write-Host "  1.4.3-jlc11" -ForegroundColor Gray
-    Write-Host "  1.4.3-rc.1+build.123" -ForegroundColor Gray
+    Write-Host "Required format: x.y.z-suffix" -ForegroundColor Yellow
+    Write-Host "Where:" -ForegroundColor Yellow
+    Write-Host "  x.y.z must be numbers (e.g., 1.4.3)" -ForegroundColor Yellow
+    Write-Host "  suffix must be alphanumeric without dots or special chars (e.g., jlc17, rc1, beta2)" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Valid examples:" -ForegroundColor Yellow
+    Write-Host "  1.4.3-jlc17" -ForegroundColor Gray
+    Write-Host "  1.4.3-rc1" -ForegroundColor Gray
+    Write-Host "  1.4.3-beta2" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Invalid examples:" -ForegroundColor Red
+    Write-Host "  1.4.3 (missing suffix)" -ForegroundColor Gray
+    Write-Host "  1.4.3-rc.1 (dots not allowed in suffix)" -ForegroundColor Gray
+    Write-Host "  1.4.3-jlc17+123 (build metadata not allowed)" -ForegroundColor Gray
     exit 1
 }
 
