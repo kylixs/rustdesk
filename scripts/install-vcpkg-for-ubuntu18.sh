@@ -142,11 +142,11 @@ echo "这将需要 10-20 分钟..."
 echo ""
 
 # 设置环境变量确保使用 -fPIC
-export CFLAGS="-fPIC"
-export CXXFLAGS="-fPIC"
+# export CFLAGS="-fPIC"
+# export CXXFLAGS="-fPIC"
 
 # 使用 --x-install-root 和详细输出
-if ! CFLAGS="$CFLAGS" CXXFLAGS="$CXXFLAGS" $VCPKG_ROOT/vcpkg install --triplet $VCPKG_TRIPLET --x-install-root="$VCPKG_ROOT/installed" 2>&1 | tee vcpkg_install.log; then
+if ! $VCPKG_ROOT/vcpkg install --triplet $VCPKG_TRIPLET --x-install-root="$VCPKG_ROOT/installed" 2>&1 | tee vcpkg_install.log; then
     echo ""
     echo "ERROR: vcpkg 安装过程中出现错误"
     

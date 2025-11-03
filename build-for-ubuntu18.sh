@@ -46,9 +46,9 @@ fi
 export RUSTFLAGS="-L $VCPKG_INSTALLED/lib -L /usr/lib/x86_64-linux-gnu"
 
 # Set compiler flags for PIC (required for shared library linking, especially for hwcodec FFmpeg)
-export CFLAGS="-fPIC"
-export CXXFLAGS="-fPIC"
-export ASFLAGS="-fPIC"
+# export CFLAGS="-fPIC"
+# export CXXFLAGS="-fPIC"
+# export ASFLAGS="-fPIC"
 # Target-specific flags for cc crate (underscores instead of hyphens)
 #export CFLAGS_x86_64_unknown_linux_gnu="-fPIC"
 #export CXXFLAGS_x86_64_unknown_linux_gnu="-fPIC"

@@ -26,27 +26,28 @@ fi
 
 echo "✓ vcpkg ready: $(cd $VCPKG_ROOT && git rev-parse --short HEAD)"
 
-# Step 5.5: Configure vcpkg triplet for PIC (Position Independent Code)
-echo ""
-echo "Step 5.5: Configuring vcpkg triplet with -fPIC..."
 TRIPLET_FILE="$VCPKG_ROOT/triplets/$VCPKG_TRIPLET.cmake"
 
-# Backup original triplet file if not already backed up
-if [ ! -f "$TRIPLET_FILE.backup" ]; then
-    cp "$TRIPLET_FILE" "$TRIPLET_FILE.backup"
-    echo "✓ Original triplet backed up to $TRIPLET_FILE.backup"
-fi
+# Step 5.5: Configure vcpkg triplet for PIC (Position Independent Code)
+# echo ""
+# echo "Step 5.5: Configuring vcpkg triplet with -fPIC..."
 
-# Check if -fPIC is already configured
-if ! grep -q "VCPKG_C_FLAGS.*-fPIC" "$TRIPLET_FILE"; then
-    echo "" >> "$TRIPLET_FILE"
-    echo "# Force PIC for static libraries so they can be linked into shared libraries (librustdesk.so)" >> "$TRIPLET_FILE"
-    echo "set(VCPKG_C_FLAGS \"-fPIC\")" >> "$TRIPLET_FILE"
-    echo "set(VCPKG_CXX_FLAGS \"-fPIC\")" >> "$TRIPLET_FILE"
-    echo "✓ Added -fPIC flags to triplet configuration"
-else
-    echo "✓ -fPIC already configured in triplet"
-fi
+# # Backup original triplet file if not already backed up
+# if [ ! -f "$TRIPLET_FILE.backup" ]; then
+#     cp "$TRIPLET_FILE" "$TRIPLET_FILE.backup"
+#     echo "✓ Original triplet backed up to $TRIPLET_FILE.backup"
+# fi
+
+# # Check if -fPIC is already configured
+# if ! grep -q "VCPKG_C_FLAGS.*-fPIC" "$TRIPLET_FILE"; then
+#     echo "" >> "$TRIPLET_FILE"
+#     echo "# Force PIC for static libraries so they can be linked into shared libraries (librustdesk.so)" >> "$TRIPLET_FILE"
+#     echo "set(VCPKG_C_FLAGS \"-fPIC\")" >> "$TRIPLET_FILE"
+#     echo "set(VCPKG_CXX_FLAGS \"-fPIC\")" >> "$TRIPLET_FILE"
+#     echo "✓ Added -fPIC flags to triplet configuration"
+# else
+#     echo "✓ -fPIC already configured in triplet"
+# fi
 
 # Display current triplet configuration
 echo "Current triplet configuration:"
