@@ -150,6 +150,11 @@ impl InvokeUiSession for SciterHandler {
         self.call2("closeSuccess", &make_args!());
     }
 
+    fn close_remote_desktop(&self) {
+        // For Sciter UI, just close the window directly
+        self.call2("close", &make_args!());
+    }
+
     fn update_quality_status(&self, status: QualityStatus) {
         self.call2(
             "updateQualityStatus",

@@ -185,15 +185,108 @@ DESCRIPTION:
     Manage RustDesk configuration options. Reading options doesn't require
     privileges, but setting options requires administrative/root access.
 
-COMMON OPTIONS:
-    custom-rendezvous-server <SERVER>    Set custom ID/relay server
-    api-server <URL>                     Set API server URL
-    relay-server <SERVER>                Set relay server address
-    key <PUBLIC_KEY>                     Set server public key
-    approve-mode <MODE>                  Set approval mode (click/password)
-    verification-method <METHOD>         Set verification method
-    allow-hide-cm <Y/N>                  Allow hiding connection manager
-    allow-logon-screen-password <Y/N>    Allow login screen password
+AVAILABLE OPTIONS:
+
+SERVER CONFIGURATION:
+    custom-rendezvous-server <SERVER>    Custom ID/relay server address
+    api-server <URL>                     API server URL
+    relay-server <SERVER>                Relay server address
+    key <PUBLIC_KEY>                     Server public key
+    direct-server <Y/N>                  Enable direct IP access mode
+    direct-access-port <PORT>            Direct access port number
+    allow-websocket <Y/N>                Enable WebSocket connections
+    allow-https-21114 <Y/N>              Allow HTTPS on port 21114
+    disable-udp <Y/N>                    Disable UDP protocol
+
+SECURITY & ACCESS CONTROL:
+    approve-mode <click/password>        Approval mode for incoming connections
+    verification-method <METHOD>         Verification method (use-permanent-password, etc.)
+    allow-logon-screen-password <Y/N>    Allow password access on login screen
+    temporary-password-length <NUM>      Length of temporary password (6-16)
+    whitelist <IDS>                      Comma-separated whitelist of allowed IDs
+    enable-lan-discovery <Y/N>           Enable LAN device discovery
+    enable-trusted-devices <Y/N>         Enable trusted devices feature
+    register-device <Y/N>                Allow device registration
+
+SESSION MANAGEMENT:
+    allow-auto-disconnect <Y/N>          Enable auto-disconnect for inactive sessions
+    auto-disconnect-timeout <MINUTES>    Timeout in minutes for inactive sessions
+    allow-only-conn-window-open <Y/N>    Only one connection window at a time
+    allow-auto-record-incoming <Y/N>     Auto-record incoming sessions
+    allow-auto-record-outgoing <Y/N>     Auto-record outgoing sessions
+    video-save-directory <PATH>          Directory for session recordings
+
+FEATURES & PERMISSIONS:
+    enable-keyboard <Y/N>                Enable keyboard control
+    enable-clipboard <Y/N>               Enable clipboard synchronization
+    enable-file-transfer <Y/N>           Enable file transfer
+    enable-camera <Y/N>                  Enable camera access
+    enable-terminal <Y/N>                Enable terminal access
+    terminal-persistent <Y/N>            Keep terminal sessions persistent
+    enable-audio <Y/N>                   Enable audio streaming
+    enable-tunnel <Y/N>                  Enable port forwarding tunnel
+    enable-remote-restart <Y/N>          Enable remote system restart
+    enable-record-session <Y/N>          Enable session recording feature
+    enable-block-input <Y/N>             Enable input blocking feature
+    allow-remote-config-modification <Y/N> Allow remote configuration changes
+
+DISPLAY & RENDERING:
+    enable-hwcodec <Y/N>                 Enable hardware codec
+    enable-abr <Y/N>                     Enable adaptive bitrate
+    allow-remove-wallpaper <Y/N>         Allow wallpaper removal during session
+    allow-always-software-render <Y/N>   Force software rendering
+    allow-linux-headless <Y/N>           Enable Linux headless mode
+    enable-directx-capture <Y/N>         Enable DirectX capture (Windows)
+    use-texture-render <Y/N>             Use texture rendering
+    allow-d3d-render <Y/N>               Allow Direct3D rendering
+    show-virtual-mouse <Y/N>             Show virtual mouse cursor
+    show-virtual-joystick <Y/N>          Show virtual joystick (mobile)
+    trackpad-speed <NUM>                 Trackpad sensitivity speed
+
+UPDATE & SYNC:
+    enable-check-update <Y/N>            Check for updates on startup
+    allow-auto-update <Y/N>              Enable automatic updates
+    sync-ab-with-recent-sessions <Y/N>   Sync address book with recent sessions
+    sync-ab-tags <Y/N>                   Sync address book tags
+    filter-ab-by-intersection <Y/N>      Filter address book by intersection
+
+NETWORK:
+    enable-udp-punch <Y/N>               Enable UDP hole punching
+    enable-ipv6-punch <Y/N>              Enable IPv6 hole punching
+
+UI CUSTOMIZATION:
+    hide-tray <Y/N>                      Hide system tray icon
+    hide-security-settings <Y/N>         Hide security settings in UI
+    hide-network-settings <Y/N>          Hide network settings in UI
+    hide-server-settings <Y/N>           Hide server settings in UI
+    hide-proxy-settings <Y/N>            Hide proxy settings in UI
+    hide-remote-printer-settings <Y/N>   Hide remote printer settings in UI
+    hide-websocket-settings <Y/N>        Hide WebSocket settings in UI
+    hide-username-on-card <Y/N>          Hide username on connection card
+    hide-help-cards <Y/N>                Hide help cards in UI
+    hide-powered-by-me <Y/N>             Hide "Powered by" branding
+    main-window-always-on-top <Y/N>      Keep main window always on top
+
+ADVANCED:
+    access-mode <custom/full>            Access mode configuration
+    one-way-clipboard-redirection <Y/N>  One-way clipboard sync
+    one-way-file-transfer <Y/N>          One-way file transfer
+    default-connect-password <PASSWORD>  Default connection password
+    allow-hostname-as-id <Y/N>           Allow hostname as device ID
+    allow-numeric-one-time-password <Y/N> Allow numeric OTP
+
+PRESET (FOR DEPLOYMENT):
+    preset-address-book-name <NAME>      Preset address book name
+    preset-address-book-tag <TAG>        Preset address book tag
+    preset-address-book-alias <ALIAS>    Preset address book alias
+    preset-address-book-password <PWD>   Preset address book password
+    preset-address-book-note <NOTE>      Preset address book note
+    preset-device-username <USERNAME>    Preset device username
+    preset-device-name <NAME>            Preset device name
+    preset-note <TEXT>                   Preset device note
+    preset-device-group-name <NAME>      Preset device group name
+    preset-user-name <NAME>              Preset user account name
+    preset-strategy-name <NAME>          Preset strategy name
 
 EXAMPLES:
     # Configure custom server
@@ -207,10 +300,18 @@ EXAMPLES:
     # Configure unattended access mode
     sudo rustdesk --option approve-mode password
     sudo rustdesk --option verification-method use-permanent-password
-    sudo rustdesk --option allow-hide-cm Y
+
+    # Enable auto-disconnect for inactive sessions
+    sudo rustdesk --option allow-auto-disconnect Y
+    sudo rustdesk --option auto-disconnect-timeout 15
 
     # Security settings
     sudo rustdesk --option allow-logon-screen-password Y
+    sudo rustdesk --option enable-trusted-devices Y
+
+    # Disable certain features
+    sudo rustdesk --option enable-file-transfer N
+    sudo rustdesk --option enable-clipboard N
 
 REQUIREMENTS:
     - Setting options requires installation and root/admin privileges
@@ -227,6 +328,7 @@ NOTES:
     - Changes take effect immediately
     - Some options may require service restart
     - Options are stored in configuration files
+    - Boolean options accept Y/N or true/false
 
 SEE ALSO:
     --config            Import config from encrypted string
