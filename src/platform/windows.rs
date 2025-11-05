@@ -90,7 +90,7 @@ use windows_service::{
 use winreg::{enums::*, RegKey};
 
 // Helper function to output debug string that DebugView can capture
-fn debug_output(msg: &str) {
+pub fn debug_output(msg: &str) {
     if let Ok(c_msg) = CString::new(msg) {
         unsafe {
             OutputDebugStringA(c_msg.as_ptr());

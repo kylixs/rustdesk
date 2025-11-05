@@ -89,19 +89,11 @@ fn sanitize_args(args: &[String]) -> Vec<String> {
 fn init_logger() {
     use flexi_logger::*;
 
-    // Get log directory: %APPDATA%\RustDesk\log\
-    // Match RustDesk main program: config_dir().parent() + "log"
-    let log_dir = if let Some(proj_dirs) = directories_next::ProjectDirs::from("", "", "RustDesk") {
-        if let Some(parent) = proj_dirs.config_dir().parent() {
-            parent.join("log")
-        } else {
-            eprintln!("Failed to get parent directory");
-            return;
-        }
-    } else {
-        eprintln!("Failed to get config directory");
-        return;
-    };
+    // Get log directory: C:\ProgramData\RustDesk\log\
+    let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+    let log_dir = PathBuf::from(format!("{}\\ProgramData", system_drive))
+        .join("RustDesk")
+        .join("log");
 
     // Determine log level based on verbose level
     let log_level = match get_verbose_level() {
@@ -143,6 +135,23 @@ fn opt_format(
         record.level(),
         record.args()
     )
+}
+
+/// Get extraction directory: C:\ProgramData\RustDesk\bin\<version>\
+fn get_extraction_dir() -> Option<PathBuf> {
+    let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
+    let program_data_dir = PathBuf::from(format!("{}\\ProgramData", system_drive));
+    let target_dir = program_data_dir.join(APP_PREFIX).join("bin").join(VERSION);
+
+    // Create directory if it doesn't exist
+    if let Err(e) = std::fs::create_dir_all(&target_dir) {
+        log::error!("Failed to create directory {}: {}", target_dir.display(), e);
+        eprintln!("Error: Failed to create directory {}: {}", target_dir.display(), e);
+        return None;
+    }
+
+    log::info!("Using extraction directory: {}", target_dir.display());
+    Some(target_dir)
 }
 
 fn is_timestamp_matches(dir: &Path, ts: &mut u64) -> bool {
@@ -213,16 +222,7 @@ fn setup(
     let dir = if let Some(dir) = dir {
         dir
     } else {
-        // home dir with version subdirectory
-        // Structure: %LOCALAPPDATA%\rustdesk\1.4.3\
-        if let Some(dir) = dirs::data_local_dir() {
-            dir.join(APP_PREFIX).join(VERSION)
-        } else {
-            let err_msg = "not found data local dir";
-            log::error!("{}", err_msg);
-            eprintln!("{}", err_msg);
-            return None;
-        }
+        get_extraction_dir()?
     };
 
     let mut ts = 0;
@@ -314,10 +314,9 @@ fn handle_verify(args: &Vec<String>) {
 
     let quick_mode = args.contains(&"--quick".to_string());
 
-    let dir = if let Some(dir) = dirs::data_local_dir() {
-        dir.join(APP_PREFIX).join(VERSION)
-    } else {
-        let err_msg = "Failed to get local data directory";
+    // Get extraction directory
+    let Some(dir) = get_extraction_dir() else {
+        let err_msg = "Failed to get extraction directory";
         log::error!("{}", err_msg);
         eprintln!("{}", err_msg);
         exit_process(1);

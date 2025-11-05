@@ -4397,6 +4397,7 @@ async fn start_ipc(
             log::info!("[CM] Starting connection manager with args: {:?}", args);
         }
         let run_done;
+        let mut cm_process: Option<std::process::Child> = None;
         if crate::platform::is_root() {
             let mut res = Ok(None);
             for _ in 0..10 {
@@ -4424,7 +4425,7 @@ async fn start_ipc(
                 Ok(task_opt) => {
                     if let Some(task) = task_opt {
                         log::info!("[CM] CM subprocess started successfully (as root)");
-                        super::CHILD_PROCESS.lock().unwrap().push(task);
+                        cm_process = Some(task);
                     } else {
                         log::info!("[CM] CM subprocess start returned no task (already running or managed externally)");
                     }
@@ -4443,7 +4444,7 @@ async fn start_ipc(
             match crate::run_me(args.clone()) {
                 Ok(task) => {
                     log::info!("[CM] CM subprocess started successfully (non-root)");
-                    super::CHILD_PROCESS.lock().unwrap().push(task);
+                    cm_process = Some(task);
                 }
                 Err(e) => {
                     log::error!("[CM] Failed to start cm subprocess with args {:?}: {:?}", args, e);
@@ -4462,8 +4463,16 @@ async fn start_ipc(
         }
         if stream.is_none() {
             log::error!("[CM] Failed to connect to connection manager after 6 seconds (20 attempts). CM subprocess may have failed to start or crashed. Check if cm/cm-no-ui process is running.");
+            // Check CM process status for diagnosis
+            if let Some(mut process) = cm_process {
+                if let Ok(Some(status)) = process.try_wait() {
+                    log::error!("[CM] CM subprocess has exited. Exit status: {:?}", status.code());
+                }
+            }
             bail!("Failed to connect to connection manager");
         }
+        // Drop cm_process to release the child process handle
+        drop(cm_process);
     }
 
     let _res = tx_stream_ready.send(()).await;

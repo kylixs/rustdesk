@@ -35,6 +35,30 @@ pub fn core_main() -> Option<Vec<String>> {
         // return None to terminate the process
         return None;
     }
+
+    // Set panic hook to capture unhandled panics for all execution paths
+    std::panic::set_hook(Box::new(|panic_info| {
+        let args: Vec<String> = std::env::args().collect();
+        let context = if args.len() > 1 {
+            format!("[RUSTDESK {}]", args[1])
+        } else {
+            "[RUSTDESK]".to_string()
+        };
+
+        let msg = format!("{} PANIC: {}", context, panic_info);
+        log::error!("{}", msg);
+        #[cfg(target_os = "windows")]
+        crate::platform::debug_output(&msg);
+
+        if let Some(location) = panic_info.location() {
+            let loc_msg = format!("{} Panic location: {}:{}:{}",
+                context, location.file(), location.line(), location.column());
+            log::error!("{}", loc_msg);
+            #[cfg(target_os = "windows")]
+            crate::platform::debug_output(&loc_msg);
+        }
+    }));
+
     let mut args = Vec::new();
     let mut flutter_args = Vec::new();
     let mut i = 0;
