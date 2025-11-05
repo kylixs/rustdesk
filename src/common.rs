@@ -546,6 +546,15 @@ impl Drop for CheckTestNatType {
 }
 
 pub fn test_nat_type() {
+    // Skip NAT test in direct IP mode
+    if config::option2bool(
+        config::keys::OPTION_DIRECT_SERVER,
+        &Config::get_option(config::keys::OPTION_DIRECT_SERVER),
+    ) {
+        log::debug!("Direct IP mode enabled, skipping NAT type test");
+        return;
+    }
+
     test_ipv6_sync();
     use std::sync::atomic::{AtomicBool, Ordering};
     std::thread::spawn(move || {
@@ -703,6 +712,15 @@ pub async fn get_nat_type(ms_timeout: u64) -> i32 {
 // used for client to test which server is faster in case stop-servic=Y
 #[tokio::main(flavor = "current_thread")]
 async fn test_rendezvous_server_() {
+    // Skip rendezvous server test in direct IP mode
+    if config::option2bool(
+        config::keys::OPTION_DIRECT_SERVER,
+        &Config::get_option(config::keys::OPTION_DIRECT_SERVER),
+    ) {
+        log::debug!("Direct IP mode enabled, skipping rendezvous server test");
+        return;
+    }
+
     let servers = Config::get_rendezvous_servers();
     if servers.len() <= 1 {
         return;
