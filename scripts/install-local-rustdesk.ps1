@@ -1,4 +1,4 @@
-# RustDesk Local Installation Script
+﻿# RustDesk Local Installation Script
 # This script installs the locally built RustDesk portable version
 
 param(

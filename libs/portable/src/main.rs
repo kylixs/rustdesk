@@ -10,6 +10,8 @@ use bin_reader::BinaryReader;
 
 pub mod bin_reader;
 pub mod verify;
+pub mod manifest;
+pub mod integrity;
 #[cfg(windows)]
 mod ui;
 
@@ -85,15 +87,79 @@ fn sanitize_args(args: &[String]) -> Vec<String> {
     sanitized
 }
 
+/// Cleanup old log files, keep only the most recent N files
+fn cleanup_old_logs(log_dir: &Path, keep_count: usize) {
+    // Collect all portable-packer log files with their modification times
+    let mut log_files = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(log_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            // Only process portable-packer log files
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                if !filename.starts_with("portable-packer-") {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+
+            // Get file modification time
+            if let Ok(metadata) = entry.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    log_files.push((path, modified));
+                }
+            }
+        }
+    }
+
+    // If we have more than keep_count files, delete the oldest ones
+    if log_files.len() > keep_count {
+        // Sort by modification time (newest first)
+        log_files.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Delete files beyond keep_count
+        for (path, _) in log_files.iter().skip(keep_count) {
+            if let Err(e) = std::fs::remove_file(path) {
+                // Silently ignore errors (file might be locked)
+                let _ = e;
+            }
+        }
+    }
+}
+
 /// Initialize logger with flexi_logger
 fn init_logger() {
     use flexi_logger::*;
 
-    // Get log directory: C:\ProgramData\RustDesk\log\
+    // Get log directory: C:\ProgramData\RustDesk\log\portable-packer\
     let system_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
     let log_dir = PathBuf::from(format!("{}\\ProgramData", system_drive))
         .join("RustDesk")
-        .join("log");
+        .join("log")
+        .join("portable-packer");
+
+    // Check if log directory is writable by trying to create it
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        eprintln!("Failed to create log directory: {}", e);
+        eprintln!("Log directory: {}", log_dir.display());
+        eprintln!("Logging disabled. Please ensure the directory has write permissions.");
+        return;  // Don't initialize logger if directory is not accessible
+    }
+
+    // Test write permission
+    let test_file = log_dir.join(".write_test");
+    if let Err(e) = std::fs::write(&test_file, b"test") {
+        eprintln!("Log directory is not writable: {}", e);
+        eprintln!("Log directory: {}", log_dir.display());
+        eprintln!("Logging disabled. Please ensure the directory has write permissions.");
+        return;  // Don't initialize logger if directory is not writable
+    }
+    let _ = std::fs::remove_file(&test_file);
+
+    // Cleanup old log files, keep the 10 most recent
+    cleanup_old_logs(&log_dir, 10);
 
     // Determine log level based on verbose level
     let log_level = match get_verbose_level() {
@@ -102,22 +168,26 @@ fn init_logger() {
         _ => "trace",     // TRACE, DEBUG, INFO, ERROR
     };
 
+    // Use PID in log filename to avoid file locking conflicts between processes
+    let pid = std::process::id();
+    let log_basename = format!("portable-packer-{}", pid);
+
     if let Ok(logger) = Logger::try_with_str(log_level) {
         match logger
             .log_to_file(FileSpec::default()
-                .directory(log_dir)
-                .basename("portable-packer"))
+                .directory(&log_dir)
+                .basename(&log_basename))
             .write_mode(WriteMode::Direct)
             .format(opt_format)
-            .rotate(
-                Criterion::Age(Age::Day),
-                Naming::Timestamps,
-                Cleanup::KeepLogFiles(5),  // 保留最近5个日志文件
-            )
+            // No rotation - each process has its own log file
+            // Old logs are cleaned up manually by cleanup_old_logs()
             .start()
         {
             Ok(_) => {},
-            Err(e) => eprintln!("Failed to initialize logger: {}", e),
+            Err(e) => {
+                eprintln!("Failed to initialize logger: {}", e);
+                eprintln!("Log directory: {}", log_dir.display());
+            }
         }
     }
 }
@@ -258,7 +328,9 @@ fn setup(
         let mut skipped_count = 0;
         for file in reader.files.iter() {
             let file_start = std::time::Instant::now();
-            file.write_to_file(&dir);
+            if let Err(e) = file.write_to_file(&dir) {
+                log::error!("Failed to write file {}: {}", file.path, e);
+            }
             let elapsed = file_start.elapsed().as_secs_f64() * 1000.0;
             if elapsed > 10.0 {
                 log::debug!("write file {}: {:.3}ms", file.path, elapsed);
@@ -282,14 +354,134 @@ fn setup(
 
         #[cfg(linux)]
         reader.configure_permission(&dir);
+
+        // Generate manifest after extraction
+        let manifest_start = std::time::Instant::now();
+        match integrity::generate_manifest(&reader, &dir, VERSION) {
+            Ok(manifest) => {
+                if let Err(e) = manifest.save(&dir) {
+                    log::warn!("Failed to save manifest: {}", e);
+                } else {
+                    log::debug!("manifest generation: {:.3}ms",
+                        manifest_start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to generate manifest: {}", e);
+            }
+        }
     } else {
         log::debug!("skipping file write (timestamp matches)");
+
+        // Verify file integrity using manifest
+        if std::env::var("RUSTDESK_SKIP_INTEGRITY_CHECK").is_ok() {
+            log::info!("File integrity check skipped (RUSTDESK_SKIP_INTEGRITY_CHECK set)");
+        } else {
+            if !verify_file_integrity(&reader, &dir) {
+                log::error!("File integrity check failed - aborting");
+                return None;
+            }
+        }
     }
 
     log::debug!("setup total: {:.3}ms",
         setup_start.elapsed().as_secs_f64() * 1000.0);
 
     Some(dir.join(&reader.exe))
+}
+
+/// Verify file integrity and restore if needed
+/// Returns true if all files are OK or successfully restored, false if restoration failed
+fn verify_file_integrity(reader: &BinaryReader, dir: &Path) -> bool {
+    let integrity_start = std::time::Instant::now();
+
+    // Load manifest
+    let mut manifest = match manifest::FileManifest::load(dir) {
+        Ok(m) => m,
+        Err(e) => {
+            log::warn!("Failed to load manifest: {}, regenerating", e);
+            // Regenerate manifest
+            match integrity::generate_manifest(reader, dir, VERSION) {
+                Ok(new_manifest) => {
+                    if let Err(e) = new_manifest.save(dir) {
+                        log::error!("Failed to save regenerated manifest: {}", e);
+                        return false;
+                    }
+                    new_manifest
+                }
+                Err(e) => {
+                    log::error!("Failed to generate manifest: {}", e);
+                    return false;
+                }
+            }
+        }
+    };
+
+    // Verify files
+    let verify_result = integrity::verify_files(&manifest, dir);
+
+    if verify_result.failed.is_empty() {
+        log::debug!("file integrity check: {}/{} passed in {:.3}ms",
+            verify_result.passed, verify_result.total,
+            integrity_start.elapsed().as_secs_f64() * 1000.0);
+        return true;
+    }
+
+    log::warn!("File integrity check: {}/{} passed, {} failed",
+        verify_result.passed, verify_result.total, verify_result.failed.len());
+
+    // Restore failed files
+    let (restored, failed_to_restore) = integrity::restore_files(reader, dir, &verify_result.failed);
+
+    // Check if any files failed to restore
+    if !failed_to_restore.is_empty() {
+        log::error!("========================================");
+        log::error!("CRITICAL: Failed to restore {} files:", failed_to_restore.len());
+        for file in &failed_to_restore {
+            log::error!("  - {}", file);
+        }
+        log::error!("========================================");
+        log::error!("The application cannot continue safely.");
+        log::error!("Please try the following:");
+        log::error!("1. Close all running instances of the application");
+        log::error!("2. Restart the portable executable");
+        log::error!("3. If the problem persists, re-download the portable package");
+        log::error!("========================================");
+
+        // Print to stderr as well for visibility
+        eprintln!("\n========================================");
+        eprintln!("ERROR: File integrity check failed");
+        eprintln!("========================================");
+        eprintln!("Failed to restore {} critical files:", failed_to_restore.len());
+        for file in &failed_to_restore {
+            eprintln!("  - {}", file);
+        }
+        eprintln!("\nPossible causes:");
+        eprintln!("  - Files are locked by another process");
+        eprintln!("  - Insufficient disk space or permissions");
+        eprintln!("  - Files were manually modified or corrupted");
+        eprintln!("\nPlease close all running instances and try again.");
+        eprintln!("========================================\n");
+
+        return false;
+    }
+
+    if !restored.is_empty() {
+        // Update manifest with restored files
+        if let Err(e) = integrity::update_manifest_after_restore(&mut manifest, reader, dir, &restored) {
+            log::warn!("Failed to update manifest metadata: {}", e);
+        }
+
+        // Save updated manifest
+        if let Err(e) = manifest.save(dir) {
+            log::warn!("Failed to save updated manifest: {}", e);
+        }
+
+        log::info!("file integrity check: restored {} files in {:.3}ms",
+            restored.len(), integrity_start.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    true
 }
 
 /// Check if running in CLI mode (any argument starting with --)
@@ -306,6 +498,125 @@ fn exit_process(code: i32) -> ! {
         log::info!("Portable packer exiting with code {}, elapsed: {:.3}s", code, elapsed);
     }
     std::process::exit(code);
+}
+
+/// Handle --dump-manifest command
+fn handle_dump_manifest() {
+    println!("RustDesk Portable Manifest Viewer\n");
+
+    // Get extraction directory
+    let Some(dir) = get_extraction_dir() else {
+        let err_msg = "Failed to get extraction directory";
+        log::error!("{}", err_msg);
+        eprintln!("{}", err_msg);
+        exit_process(1);
+    };
+
+    if !dir.exists() {
+        let err_msg = format!("Directory does not exist: {}", dir.display());
+        log::error!("{}", err_msg);
+        eprintln!("{}", err_msg);
+        exit_process(1);
+    }
+
+    // Load manifest
+    let manifest = match manifest::FileManifest::load(&dir) {
+        Ok(m) => m,
+        Err(e) => {
+            let err_msg = format!("Failed to load manifest: {}", e);
+            log::error!("{}", err_msg);
+            eprintln!("{}", err_msg);
+            exit_process(1);
+        }
+    };
+
+    // Display manifest information
+    println!("Manifest Information:");
+    println!("  Manifest Version: {}", manifest.manifest_version);
+    println!("  Portable Version: {}", manifest.portable_version);
+
+    // Convert timestamp to readable format
+    let generated_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(manifest.generated_at);
+    if let Ok(datetime) = generated_time.duration_since(std::time::UNIX_EPOCH) {
+        println!("  Generated At: {} (Unix timestamp: {})",
+            format_timestamp(datetime.as_secs()),
+            manifest.generated_at);
+    }
+
+    println!("  Total Files: {}", manifest.files.len());
+    println!();
+
+    // Display file list
+    println!("File List:");
+    println!("{:<60} {:>12} {:>12} {:>20} {}",
+        "Path", "Size", "Modified", "Version", "MD5");
+    println!("{}", "-".repeat(140));
+
+    for file in &manifest.files {
+        let version_str = file.version.as_deref().unwrap_or("N/A");
+        let modified_str = format_timestamp(file.modified);
+
+        println!("{:<60} {:>12} {:>12} {:>20} {}",
+            truncate_path(&file.path, 60),
+            format_size(file.size),
+            modified_str,
+            truncate_str(version_str, 20),
+            &file.md5[..16]); // Show first 16 chars of MD5
+    }
+
+    println!();
+    println!("Total: {} files", manifest.files.len());
+
+    log::info!("Manifest dump completed");
+    exit_process(0);
+}
+
+/// Format size in human-readable format
+fn format_size(size: u64) -> String {
+    if size < 1024 {
+        format!("{} B", size)
+    } else if size < 1024 * 1024 {
+        format!("{:.1} KB", size as f64 / 1024.0)
+    } else if size < 1024 * 1024 * 1024 {
+        format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.1} GB", size as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
+/// Format Unix timestamp to readable string (local timezone)
+fn format_timestamp(timestamp: u64) -> String {
+    use chrono::{DateTime, Utc, Local, TimeZone};
+
+    match Utc.timestamp_opt(timestamp as i64, 0) {
+        chrono::LocalResult::Single(dt) => {
+            // Convert UTC to local timezone
+            let local_dt: DateTime<Local> = dt.into();
+            local_dt.format("%Y-%m-%d %H:%M:%S").to_string()
+        }
+        _ => format!("<invalid:{}>", timestamp)
+    }
+}
+
+/// Truncate string to specified length
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len-3])
+    }
+}
+
+/// Truncate path for display
+fn truncate_path(path: &str, max_len: usize) -> String {
+    if path.len() <= max_len {
+        path.to_string()
+    } else {
+        // Try to show beginning and end
+        let start_len = max_len / 2 - 2;
+        let end_len = max_len - start_len - 3;
+        format!("{}...{}", &path[..start_len], &path[path.len()-end_len..])
+    }
 }
 
 /// Handle --verify command
@@ -522,12 +833,23 @@ fn main() {
         win_console::init();
         log::debug!("win_console::init() completed");
 
-        // Handle --verify command
-        if args.len() > 0 && args[0] == "--verify" {
-            log::debug!("Running --verify handler");
-            handle_verify(&args);
-            log::debug!("--verify completed");
-            return;
+        // Handle portable packer specific commands
+        if args.len() > 0 {
+            match args[0].as_str() {
+                "--packer-help" => {
+                    print_help();
+                    return;
+                }
+                "--dump-manifest" => {
+                    handle_dump_manifest();
+                    return;
+                }
+                "--verify" => {
+                    handle_verify(&args);
+                    return;
+                }
+                _ => {}
+            }
         }
 
         let reader = BinaryReader::default();
@@ -574,6 +896,22 @@ fn main() {
 
     let elapsed = get_start_time().elapsed();
     log::info!("Portable packer exiting, elapsed: {:.3}s", elapsed.as_secs_f64());
+}
+
+fn print_help() {
+    println!("RustDesk Portable Packer - Built-in Commands\n");
+    println!("These commands are handled by the portable packer itself:\n");
+    println!("  --dump-manifest    Display manifest file contents");
+    println!("                     Shows all tracked files with metadata (size, mtime, version, MD5)");
+    println!();
+    println!("  --verify           Verify portable package integrity");
+    println!("                     Checks all files against embedded MD5 checksums");
+    println!("    --quick          Fast verification (skip checksum calculation)");
+    println!();
+    println!("  --packer-help      Display this help message");
+    println!();
+    println!("All other commands are passed to the RustDesk application.");
+    println!("Use --help to see RustDesk application commands.\n");
 }
 
 #[cfg(windows)]

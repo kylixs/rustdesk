@@ -42,22 +42,22 @@ impl BinaryData {
         buf
     }
 
-    pub fn write_to_file(&self, prefix: &Path) {
+    pub fn write_to_file(&self, prefix: &Path) -> std::io::Result<()> {
         let p = prefix.join(&self.path);
         if let Some(parent) = p.parent() {
             if !parent.exists() {
-                let _ = fs::create_dir_all(parent);
+                fs::create_dir_all(parent)?;
             }
         }
         if p.exists() {
             // check md5
-            let f = fs::read(p.clone()).unwrap_or_default();
+            let f = fs::read(&p).unwrap_or_default();
             let digest = format!("{:x}", md5::compute(&f));
             let md5_record = String::from_utf8_lossy(self.md5_code);
             if digest == md5_record {
                 // same, skip this file
                 log::trace!("skip {}", &self.path);
-                return;
+                return Ok(());
             } else {
                 log::info!("writing {} (md5 mismatch: {} -> {})",
                     p.display(), md5_record, digest);
@@ -65,7 +65,41 @@ impl BinaryData {
         } else {
             log::info!("writing {} (new file)", p.display());
         }
-        let _ = fs::write(p, self.decompress());
+
+        fs::write(&p, self.decompress())?;
+        Ok(())
+    }
+
+    /// Write to file and preserve original modified time
+    pub fn write_to_file_with_mtime(&self, prefix: &Path, mtime_secs: u64) -> std::io::Result<()> {
+        self.write_to_file(prefix)?;
+
+        let p = prefix.join(&self.path);
+
+        // Set file modification time to match original
+        #[cfg(windows)]
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            use std::os::windows::fs::MetadataExt;
+
+            let mtime = UNIX_EPOCH + std::time::Duration::from_secs(mtime_secs);
+            if let Err(e) = filetime::set_file_mtime(&p, filetime::FileTime::from_system_time(mtime)) {
+                log::warn!("Failed to set mtime for {}: {}", self.path, e);
+            } else {
+                log::debug!("Set mtime for {} to {}", self.path, mtime_secs);
+            }
+        }
+
+        #[cfg(not(windows))]
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let mtime = UNIX_EPOCH + std::time::Duration::from_secs(mtime_secs);
+            if let Err(e) = filetime::set_file_mtime(&p, filetime::FileTime::from_system_time(mtime)) {
+                log::warn!("Failed to set mtime for {}: {}", self.path, e);
+            }
+        }
+
+        Ok(())
     }
 }
 
