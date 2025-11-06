@@ -10,6 +10,7 @@ import hashlib
 import argparse
 import sys
 from pathlib import Path
+from datetime import datetime
 
 windows = platform.platform().startswith('Windows')
 osx = platform.platform().startswith(
@@ -51,6 +52,68 @@ def get_version():
             if line.startswith("version"):
                 return line.replace("version", "").replace("=", "").replace('"', '').strip()
     return ''
+
+
+def update_flutter_version_with_timestamp():
+    """
+    Update flutter/pubspec.yaml version with build timestamp.
+    Backup original file and restore it after build.
+    Returns: (backup_path, original_version, new_version, timestamp)
+    """
+    pubspec_path = "flutter/pubspec.yaml"
+    backup_path = "flutter/pubspec.yaml.backup"
+
+    # Backup original pubspec.yaml
+    shutil.copy2(pubspec_path, backup_path)
+
+    # Read current version
+    with open(pubspec_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # Find version line
+    lines = content.split('\n')
+    original_version = None
+    timestamp_value = None
+    new_lines = []
+
+    for line in lines:
+        if line.startswith('version:'):
+            # Extract base version (remove build number if exists)
+            parts = line.split(':')
+            if len(parts) >= 2:
+                version_part = parts[1].strip()
+                # Remove existing build number after +
+                base_version = version_part.split('+')[0]
+                original_version = version_part
+
+                # Generate timestamp: YYYYMMDD-HHMM
+                timestamp = datetime.now().strftime('%Y%m%d-%H%M')
+                timestamp_value = timestamp
+
+                # Create new version with timestamp
+                new_version = f"{base_version}+{timestamp}"
+                new_lines.append(f"version: {new_version}")
+                print(f"Flutter version updated: {original_version} -> {new_version}")
+                print(f"Build timestamp: {timestamp}")
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+
+    # Write updated content
+    with open(pubspec_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(new_lines))
+
+    return (backup_path, original_version, new_version, timestamp_value)
+
+
+def restore_flutter_version(backup_path):
+    """Restore original pubspec.yaml from backup"""
+    pubspec_path = "flutter/pubspec.yaml"
+    if os.path.exists(backup_path):
+        shutil.copy2(backup_path, pubspec_path)
+        os.remove(backup_path)
+        print(f"Flutter version restored from backup")
 
 
 def parse_rc_features(feature):
@@ -322,6 +385,10 @@ def build_flutter_deb(version, features):
     if not skip_cargo:
         system2(f'cargo build --features {features} --lib --release')
         ffi_bindgen_function_refactor()
+
+    # Update Flutter version with timestamp before building
+    backup_path, orig_ver, new_ver, build_timestamp = update_flutter_version_with_timestamp()
+
     os.chdir('flutter')
     system2('flutter build linux --release')
     system2('mkdir -p tmpdeb/usr/bin/')
@@ -403,6 +470,9 @@ def build_deb_from_folder(version, binary_folder):
     os.rename('rustdesk.deb', '../rustdesk-%s.deb' % version)
     os.chdir("..")
 
+    # Restore original version after build
+    restore_flutter_version(backup_path)
+
 
 def build_flutter_dmg(version, features):
     if not skip_cargo:
@@ -412,26 +482,42 @@ def build_flutter_dmg(version, features):
     # copy dylib
     system2(
         "cp target/release/liblibrustdesk.dylib target/release/librustdesk.dylib")
-    os.chdir('flutter')
-    system2('flutter build macos --release')
-    system2('cp -rf ../target/release/service ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS/')
-    '''
-    system2(
-        "create-dmg --volname \"RustDesk Installer\" --window-pos 200 120 --window-size 800 400 --icon-size 100 --app-drop-link 600 185 --icon RustDesk.app 200 190 --hide-extension RustDesk.app rustdesk.dmg ./build/macos/Build/Products/Release/RustDesk.app")
-    os.rename("rustdesk.dmg", f"../rustdesk-{version}.dmg")
-    '''
-    os.chdir("..")
+
+    # Update Flutter version with timestamp before building
+    backup_path, orig_ver, new_ver, build_timestamp = update_flutter_version_with_timestamp()
+
+    try:
+        os.chdir('flutter')
+        system2('flutter build macos --release')
+        system2('cp -rf ../target/release/service ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS/')
+        '''
+        system2(
+            "create-dmg --volname \"RustDesk Installer\" --window-pos 200 120 --window-size 800 400 --icon-size 100 --app-drop-link 600 185 --icon RustDesk.app 200 190 --hide-extension RustDesk.app rustdesk.dmg ./build/macos/Build/Products/Release/RustDesk.app")
+        os.rename("rustdesk.dmg", f"../rustdesk-{version}.dmg")
+        '''
+        os.chdir("..")
+    finally:
+        # Restore original version after build
+        restore_flutter_version(backup_path)
 
 
 def build_flutter_arch_manjaro(version, features):
     if not skip_cargo:
         system2(f'cargo build --features {features} --lib --release')
     ffi_bindgen_function_refactor()
-    os.chdir('flutter')
-    system2('flutter build linux --release')
-    system2(f'strip {flutter_build_dir}/lib/librustdesk.so')
-    os.chdir('../res')
-    system2('HBB=`pwd`/.. FLUTTER=1 makepkg -f')
+
+    # Update Flutter version with timestamp before building
+    backup_path, orig_ver, new_ver, build_timestamp = update_flutter_version_with_timestamp()
+
+    try:
+        os.chdir('flutter')
+        system2('flutter build linux --release')
+        system2(f'strip {flutter_build_dir}/lib/librustdesk.so')
+        os.chdir('../res')
+        system2('HBB=`pwd`/.. FLUTTER=1 makepkg -f')
+    finally:
+        # Restore original version after build
+        restore_flutter_version(backup_path)
 
 
 def build_flutter_windows(version, features, skip_portable_pack):
@@ -440,13 +526,30 @@ def build_flutter_windows(version, features, skip_portable_pack):
         if not os.path.exists("target/release/librustdesk.dll"):
             print("cargo build failed, please check rust source code.")
             exit(-1)
-    os.chdir('flutter')
-    system2('flutter build windows --release')
-    os.chdir('..')
+
+    # Update Flutter version with timestamp before building
+    backup_path, orig_ver, new_ver, build_timestamp = update_flutter_version_with_timestamp()
+
+    try:
+        os.chdir('flutter')
+        system2('flutter build windows --release')
+        os.chdir('..')
+    finally:
+        # Restore original version after build
+        restore_flutter_version(backup_path)
     shutil.copy2('target/release/deps/dylib_virtual_display.dll',
                  flutter_build_dir_2)
     if skip_portable_pack:
         return
+
+    # Write timestamp to temporary file for portable packer to use the same timestamp
+    if build_timestamp:
+        timestamp_file = 'target/build_timestamp.txt'
+        os.makedirs('target', exist_ok=True)
+        with open(timestamp_file, 'w') as f:
+            f.write(build_timestamp)
+        print(f"Wrote build timestamp {build_timestamp} to {timestamp_file} for portable packer")
+
     os.chdir('libs/portable')
     system2('pip3 install -r requirements.txt')
     system2(

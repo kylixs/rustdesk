@@ -111,10 +111,11 @@ function Get-ProcessVersion {
 
     try {
         $versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($ExecutablePath)
-        if ($versionInfo.FileVersion) {
-            return $versionInfo.FileVersion
-        } elseif ($versionInfo.ProductVersion) {
+        # Prefer ProductVersion as it contains build timestamp
+        if ($versionInfo.ProductVersion) {
             return $versionInfo.ProductVersion
+        } elseif ($versionInfo.FileVersion) {
+            return $versionInfo.FileVersion
         }
     } catch {
         # Silently ignore errors

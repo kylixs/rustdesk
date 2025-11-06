@@ -22,7 +22,7 @@ fn build_mac() {
     println!("cargo:rerun-if-changed={}", file);
 }
 
-#[cfg(all(windows, feature = "inline"))]
+#[cfg(all(windows, any(feature = "inline", feature = "flutter")))]
 fn build_manifest() {
     use std::io::Write;
     if std::env::var("PROFILE").unwrap() == "release" {
@@ -51,7 +51,7 @@ fn build_manifest() {
             ))
             .set_manifest_file("res/manifest.xml")
             // Set ProductVersion to include build timestamp
-            .set_version_info(winres::VersionInfo::PRODUCTVERSION, &full_version);
+            .set("ProductVersion", &full_version);
 
         match res.compile() {
             Err(e) => {
@@ -100,7 +100,7 @@ fn install_android_deps() {
 fn main() {
     hbb_common::gen_version();
     install_android_deps();
-    #[cfg(all(windows, feature = "inline"))]
+    #[cfg(all(windows, any(feature = "inline", feature = "flutter")))]
     build_manifest();
     #[cfg(windows)]
     build_windows();
