@@ -666,6 +666,132 @@ fn handle_verify(args: &Vec<String>) {
     }
 }
 
+/// Handle --fix command: verify and auto-repair files
+fn handle_fix() {
+    println!("RustDesk Portable Package Fixer\n");
+
+    // Get extraction directory
+    let Some(dir) = get_extraction_dir() else {
+        let err_msg = "Failed to get extraction directory";
+        log::error!("{}", err_msg);
+        eprintln!("{}", err_msg);
+        exit_process(1);
+    };
+
+    if !dir.exists() {
+        let err_msg = format!("Directory does not exist: {}", dir.display());
+        log::error!("{}", err_msg);
+        eprintln!("{}", err_msg);
+        exit_process(1);
+    }
+
+    let reader = BinaryReader::default();
+    log::info!("Fix started, files: {}", reader.files.len());
+
+    println!("Verifying files with MD5 checksums...");
+    let verify_start = std::time::Instant::now();
+    let result = verify::verify_directory(&reader, &dir);
+    let verify_elapsed = verify_start.elapsed().as_secs_f64();
+
+    println!("\nVerification Report:");
+    println!("================================================================================");
+    println!("Total files: {}", result.total_files);
+    println!("Passed: {}", result.passed_files);
+    println!("Failed: {}", result.failures.len());
+    println!("Verification time: {:.2}s", verify_elapsed);
+
+    if result.failures.is_empty() {
+        println!("\n✓ All files verified successfully. No repairs needed.");
+        log::info!("Fix completed: no repairs needed");
+        exit_process(0);
+    }
+
+    // Show failed files
+    println!("\nFiles requiring repair:");
+    for failure in &result.failures {
+        println!("  - {} ({})", failure.path,
+            match failure.failure_type {
+                verify::FailureType::Missing => "missing".to_string(),
+                verify::FailureType::HashMismatch => "hash mismatch".to_string(),
+            }
+        );
+    }
+
+    // Auto-repair failed files
+    println!("\nRepairing files...");
+    let repair_start = std::time::Instant::now();
+    let mut repaired_count = 0;
+    let mut failed_repairs = Vec::new();
+
+    for failure in &result.failures {
+        print!("  Repairing: {}... ", failure.path);
+
+        // Find file in portable data
+        if let Some(file_data) = reader.files.iter().find(|f| f.path == failure.path) {
+            match file_data.write_to_file(&dir) {
+                Ok(()) => {
+                    // Verify the repair
+                    let file_path = dir.join(&failure.path);
+                    match std::fs::read(&file_path) {
+                        Ok(file_content) => {
+                            let actual_md5 = format!("{:x}", md5::compute(&file_content));
+                            let expected_md5 = String::from_utf8_lossy(file_data.md5_code).to_string();
+
+                            if actual_md5 == expected_md5 {
+                                println!("✓ OK");
+                                repaired_count += 1;
+                                log::info!("Repaired: {}", failure.path);
+                            } else {
+                                println!("✗ FAILED (MD5 mismatch after repair)");
+                                failed_repairs.push(failure.path.clone());
+                                log::error!("Failed to repair {}: MD5 mismatch", failure.path);
+                            }
+                        }
+                        Err(e) => {
+                            println!("✗ FAILED (cannot read: {})", e);
+                            failed_repairs.push(failure.path.clone());
+                            log::error!("Failed to repair {}: {}", failure.path, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("✗ FAILED ({})", e);
+                    failed_repairs.push(failure.path.clone());
+                    log::error!("Failed to repair {}: {}", failure.path, e);
+                }
+            }
+        } else {
+            println!("✗ FAILED (not found in portable data)");
+            failed_repairs.push(failure.path.clone());
+            log::error!("Failed to repair {}: not found in portable data", failure.path);
+        }
+    }
+
+    let repair_elapsed = repair_start.elapsed().as_secs_f64();
+
+    // Print summary
+    println!("\nRepair Summary:");
+    println!("================================================================================");
+    println!("Repaired: {}/{}", repaired_count, result.failures.len());
+    println!("Failed: {}", failed_repairs.len());
+    println!("Repair time: {:.2}s", repair_elapsed);
+
+    let total_elapsed = get_start_time().elapsed().as_secs_f64();
+    log::info!("Fix completed: repaired {}/{}, elapsed: {:.3}s",
+        repaired_count, result.failures.len(), total_elapsed);
+
+    if !failed_repairs.is_empty() {
+        println!("\n✗ Some files could not be repaired:");
+        for path in &failed_repairs {
+            println!("  - {}", path);
+        }
+        exit_process(1);
+    } else {
+        println!("\n✓ All files repaired successfully.");
+        exit_process(0);
+    }
+}
+
 /// Execute in CLI mode with console output support
 fn execute_cli_mode(path: PathBuf, args: Vec<String>) {
     log::debug!("execute_cli_mode: started");
@@ -848,6 +974,10 @@ fn main() {
                     handle_verify(&args);
                     return;
                 }
+                "--fix" => {
+                    handle_fix();
+                    return;
+                }
                 _ => {}
             }
         }
@@ -907,6 +1037,9 @@ fn print_help() {
     println!("  --verify           Verify portable package integrity");
     println!("                     Checks all files against embedded MD5 checksums");
     println!("    --quick          Fast verification (skip checksum calculation)");
+    println!();
+    println!("  --fix              Check and fix file integrity");
+    println!("                     Performs full MD5 verification and auto-repairs corrupted files");
     println!();
     println!("  --packer-help      Display this help message");
     println!();
