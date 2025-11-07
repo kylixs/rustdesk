@@ -972,12 +972,11 @@ fn main() {
                             return;
                         }
                         // For non-packer commands (e.g. --help status),
-                        // print header and pass through to rustdesk.exe
-                        print_help_header();
-                        // Don't return - let --help <arg> pass through to rustdesk.exe
+                        // pass through directly to rustdesk.exe without showing header
+                        // Don't return - let --help <arg> pass through
                     } else {
-                        // Print portable commands header, then continue
-                        // to pass --help to rustdesk.exe
+                        // Only --help (no subcommand): print portable commands header,
+                        // then continue to pass --help to rustdesk.exe
                         print_help_header();
                         // Don't return - let --help pass through to rustdesk.exe
                     }
