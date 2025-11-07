@@ -962,9 +962,18 @@ fn main() {
         // Handle portable packer specific commands
         if args.len() > 0 {
             match args[0].as_str() {
-                "--packer-help" => {
-                    print_help();
-                    return;
+                "--help" => {
+                    // Check if there's a subcommand for detailed help
+                    if args.len() > 1 {
+                        // Show detailed help for specific command and exit
+                        print_command_help(&args[1]);
+                        return;
+                    } else {
+                        // Print portable commands header, then continue
+                        // to pass --help to rustdesk.exe
+                        print_help_header();
+                        // Don't return - let --help pass through to rustdesk.exe
+                    }
                 }
                 "--dump-manifest" => {
                     handle_dump_manifest();
@@ -1028,23 +1037,91 @@ fn main() {
     log::info!("Portable packer exiting, elapsed: {:.3}s", elapsed.as_secs_f64());
 }
 
-fn print_help() {
-    println!("RustDesk Portable Packer - Built-in Commands\n");
-    println!("These commands are handled by the portable packer itself:\n");
-    println!("  --dump-manifest    Display manifest file contents");
-    println!("                     Shows all tracked files with metadata (size, mtime, version, MD5)");
+/// Print portable commands help header
+fn print_help_header() {
+    println!("================================================================================");
+    println!("RustDesk Portable Version {} - Additional Commands", VERSION);
+    println!("================================================================================");
     println!();
-    println!("  --verify           Verify portable package integrity");
-    println!("                     Checks all files against embedded MD5 checksums");
-    println!("    --quick          Fast verification (skip checksum calculation)");
+    println!("PORTABLE PACKAGE COMMANDS:");
+    println!("  --dump-manifest              Display manifest file contents");
+    println!("  --verify [--quick]           Verify package integrity");
+    println!("  --fix                        Check and fix file integrity");
     println!();
-    println!("  --fix              Check and fix file integrity");
-    println!("                     Performs full MD5 verification and auto-repairs corrupted files");
+    println!("For detailed command help, use:");
+    println!("  --help <command>             Example: --help verify, --help fix");
     println!();
-    println!("  --packer-help      Display this help message");
+    println!("================================================================================");
     println!();
-    println!("All other commands are passed to the RustDesk application.");
-    println!("Use --help to see RustDesk application commands.\n");
+}
+
+/// Print detailed help for a specific command
+fn print_command_help(command: &str) {
+    match command {
+        "dump-manifest" => {
+            println!("COMMAND: --dump-manifest\n");
+            println!("Display portable package manifest file contents.\n");
+            println!("DESCRIPTION:");
+            println!("    Shows all files tracked in the manifest with their metadata:");
+            println!("    - File path");
+            println!("    - File size");
+            println!("    - Modification time (local timezone)");
+            println!("    - File version (for executables)");
+            println!("    - MD5 checksum");
+            println!();
+            println!("OUTPUT FORMAT:");
+            println!("    Table format with columns: Path, Size, Modified, Version, MD5");
+            println!();
+            println!("USAGE:");
+            println!("    rustdesk --dump-manifest\n");
+        }
+        "verify" => {
+            println!("COMMAND: --verify\n");
+            println!("Verify portable package integrity.\n");
+            println!("DESCRIPTION:");
+            println!("    Checks all files against embedded MD5 checksums to detect");
+            println!("    corruption or tampering. Default mode performs full MD5");
+            println!("    verification of all files.");
+            println!();
+            println!("OPTIONS:");
+            println!("    --quick              Fast verification (skip MD5, check existence only)");
+            println!();
+            println!("USAGE:");
+            println!("    rustdesk --verify           # Full MD5 verification");
+            println!("    rustdesk --verify --quick   # Quick check (existence only)");
+            println!();
+            println!("EXIT CODE:");
+            println!("    0    All files verified successfully");
+            println!("    1    Verification failed\n");
+        }
+        "fix" => {
+            println!("COMMAND: --fix\n");
+            println!("Check and fix file integrity.\n");
+            println!("DESCRIPTION:");
+            println!("    Performs full MD5 verification on all files and automatically");
+            println!("    repairs any corrupted or missing files from embedded data.");
+            println!("    After repair, verifies the fix was successful.");
+            println!();
+            println!("PROCESS:");
+            println!("    1. Verify all files with MD5 checksums");
+            println!("    2. List files requiring repair");
+            println!("    3. Auto-repair each failed file");
+            println!("    4. Verify repairs were successful");
+            println!("    5. Report results");
+            println!();
+            println!("USAGE:");
+            println!("    rustdesk --fix");
+            println!();
+            println!("EXIT CODE:");
+            println!("    0    All files OK or successfully repaired");
+            println!("    1    Some files could not be repaired\n");
+        }
+        _ => {
+            println!("Unknown command: {}\n", command);
+            println!("Available commands: dump-manifest, verify, fix");
+            println!("Use --help to see all commands.\n");
+        }
+    }
 }
 
 #[cfg(windows)]
