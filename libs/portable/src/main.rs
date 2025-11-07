@@ -965,9 +965,16 @@ fn main() {
                 "--help" => {
                     // Check if there's a subcommand for detailed help
                     if args.len() > 1 {
-                        // Show detailed help for specific command and exit
-                        print_command_help(&args[1]);
-                        return;
+                        let command = args[1].as_str();
+                        // Only handle packer commands
+                        if matches!(command, "dump-manifest" | "verify" | "fix") {
+                            print_command_help(command);
+                            return;
+                        }
+                        // For non-packer commands (e.g. --help status),
+                        // print header and pass through to rustdesk.exe
+                        print_help_header();
+                        // Don't return - let --help <arg> pass through to rustdesk.exe
                     } else {
                         // Print portable commands header, then continue
                         // to pass --help to rustdesk.exe
