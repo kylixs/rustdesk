@@ -8,6 +8,10 @@ use std::{
 
 use bin_reader::BinaryReader;
 
+// Import win_console macros to override std println!/print! in CLI mode
+#[allow(unused_imports)]
+use win_console::{println, print};
+
 pub mod bin_reader;
 pub mod verify;
 pub mod manifest;
@@ -961,13 +965,39 @@ fn main() {
 
         // Handle portable packer specific commands
         if args.len() > 0 {
+            // Check for 'help xxx' format (e.g., rustdesk help verify)
+            if args[0] == "help" && args.len() > 1 {
+                let command = args[1].as_str();
+                let cmd_without_prefix = command.strip_prefix("--").unwrap_or(command);
+                // Only handle packer commands
+                if matches!(cmd_without_prefix, "dump-manifest" | "verify" | "fix") {
+                    print_command_help(command);
+                    return;
+                }
+                // For non-packer commands, pass through to rustdesk.exe
+            }
+
+            // Check for 'xxx --help/-h' format (e.g., rustdesk verify --help)
+            if args.len() > 1 && (args[1] == "--help" || args[1] == "-h") {
+                let command = args[0].as_str();
+                let cmd_without_prefix = command.strip_prefix("--").unwrap_or(command);
+                // Only handle packer commands
+                if matches!(cmd_without_prefix, "dump-manifest" | "verify" | "fix") {
+                    print_command_help(command);
+                    return;
+                }
+                // For non-packer commands, pass through to rustdesk.exe
+            }
+
             match args[0].as_str() {
                 "--help" => {
                     // Check if there's a subcommand for detailed help
                     if args.len() > 1 {
                         let command = args[1].as_str();
+                        // Strip -- prefix for checking (support both --verify and verify)
+                        let cmd_without_prefix = command.strip_prefix("--").unwrap_or(command);
                         // Only handle packer commands
-                        if matches!(command, "dump-manifest" | "verify" | "fix") {
+                        if matches!(cmd_without_prefix, "dump-manifest" | "verify" | "fix") {
                             print_command_help(command);
                             return;
                         }
@@ -1063,6 +1093,9 @@ fn print_help_header() {
 
 /// Print detailed help for a specific command
 fn print_command_help(command: &str) {
+    // Strip leading -- prefix if present to support both formats
+    let command = command.strip_prefix("--").unwrap_or(command);
+
     match command {
         "dump-manifest" => {
             println!("COMMAND: --dump-manifest\n");
