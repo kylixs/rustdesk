@@ -101,6 +101,19 @@ pub fn core_main() -> Option<Vec<String>> {
         i += 1;
     }
 
+    // Initialize console attachment for CLI commands (Windows only)
+    // This allows GUI application to attach to parent console when launched from terminal
+    // Safe to call even when not launched from console - will do nothing if no parent console
+    #[cfg(windows)]
+    {
+        win_console::init();
+    }
+    
+    // Handle help requests before flutter invoke new connection
+    if proc_help(&args) {
+        return None;
+    }
+
     // Handle default behavior: show help when no args
     // Special cases that allow empty args:
     // - Windows setup.exe (click_setup)
@@ -159,69 +172,6 @@ pub fn core_main() -> Option<Vec<String>> {
     if args.contains(&"--noinstall".to_string()) {
         args.clear();
     }
-    // Initialize console for CLI commands on Windows
-    // Enables stdout/stderr output for GUI applications (windows_subsystem = "windows")
-    // Supports PowerShell, CMD, and Git Bash with automatic prompt positioning
-    //
-    // Uses whitelist approach: only allocate console for explicit CLI commands
-    // This prevents console allocation for GUI modes (--connect, --gui, etc.)
-    #[cfg(windows)]
-    let _cli_mode = {
-        const CLI_COMMANDS: &[&str] = &[
-            // Information commands
-            "--version",
-            "--build-date",
-            "--help",
-            "--get-id",
-
-            // Configuration commands
-            "--password",
-            "--permanent-password",
-            "--set-unlock-pin",
-            "--set-id",
-            "--option",
-            "--list-options",
-            "--config",
-            "--import-config",
-            "--export-config",
-
-            // Service management
-            "--install-service",
-            "--uninstall-service",
-            "--start-service",
-            "--stop-service",
-            "--status",
-
-            // Installation (CLI only)
-            "--silent-install",
-            // "--install",         // Removed: opens GUI installer
-            // "--uninstall",       // Removed: opens GUI uninstaller with UAC prompt
-
-            // Device management
-            "--assign",
-
-            // Hardware/Driver management
-            "--check-hwcodec-config",
-            "--hwcodec",
-            "--install-idd",
-            "--uninstall-amyuni-idd",
-            "--install-remote-printer",
-            "--uninstall-remote-printer",
-            "--uninstall-cert",
-
-            // Plugin management
-            "--plugin-install",
-            "--plugin-uninstall",
-        ];
-        match args.first() {
-            Some(arg) if CLI_COMMANDS.contains(&arg.as_str()) => {
-                win_console::init();
-                win_console::set_prompt_push_delay(20);
-                true
-            }
-            _ => false,
-        }
-    };
 
     if args.len() > 0 {
         if args[0] == "--version" {
@@ -230,15 +180,9 @@ pub fn core_main() -> Option<Vec<String>> {
         } else if args[0] == "--build-date" {
             println!("{}", crate::BUILD_DATE);
             return None;
-        } else if args[0] == "--help" || args[0] == "-h" {
-            if args.len() > 1 {
-                crate::cli_help::print_specific_help(&args[1]);
-            } else {
-                crate::cli_help::print_help();
-            }
-            return None;
         }
     }
+
     #[cfg(windows)]
     {
         _is_quick_support |= !crate::platform::is_installed()
@@ -784,6 +728,49 @@ pub fn core_main() -> Option<Vec<String>> {
     return Some(flutter_args);
     #[cfg(not(feature = "flutter"))]
     return Some(args);
+}
+
+
+/// Process help request - handles all help formats
+/// Returns true if help was handled and should exit
+///
+/// Supported formats:
+/// - rustdesk --help / -h
+/// - rustdesk help [command]
+/// - rustdesk --help <command>
+/// - rustdesk <command> --help / -h
+fn proc_help(args: &Vec<String>) -> bool {
+    if args.is_empty() {
+        return false;
+    }
+
+    // Format 1: --help or -h (first argument)
+    if args[0] == "--help" || args[0] == "-h" {
+        if args.len() > 1 {
+            crate::cli_help::print_specific_help(&args[1]);
+        } else {
+            crate::cli_help::print_help();
+        }
+        return true;
+    }
+
+    // Format 2: help [command]
+    if args[0] == "help" {
+        if args.len() > 1 {
+            crate::cli_help::print_specific_help(&args[1]);
+        } else {
+            crate::cli_help::print_help();
+        }
+        return true;
+    }
+
+    // Format 3: <command> --help or <command> -h
+    if args.len() >= 2 && (args[1] == "--help" || args[1] == "-h") {
+        crate::cli_help::print_specific_help(&args[0]);
+        return true;
+    }
+
+    false
 }
 
 #[inline]

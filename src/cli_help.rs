@@ -53,20 +53,7 @@ CONNECTION:
     --whiteboard                    Start whiteboard session
 
 DEVICE MANAGEMENT:
-    --assign --token <TOKEN> [OPTIONS]
-                                    Assign device to account/group
-                                    Required: --token <bearer_token>
-                                    Optional: --user_name <name>
-                                             --strategy_name <name>
-                                             --address_book_name <name>
-                                             --address_book_tag <tag>
-                                             --address_book_alias <alias>
-                                             --address_book_password <pwd>
-                                             --address_book_note <note>
-                                             --device_group_name <name>
-                                             --note <text>
-                                             --device_username <name>
-                                             --device_name <name>
+    --assign --token <TOKEN> [OPTIONS]   Assign device to account/group
 
 PLATFORM-SPECIFIC (Windows):
     --install                      Install RustDesk
@@ -97,9 +84,6 @@ EXAMPLES:
     # View help for a specific command
     rustdesk --help --option
 
-    # start as gui application
-    rustdesk --gui
-
     # Set permanent password
     sudo rustdesk --password MySecurePassword
 
@@ -124,15 +108,46 @@ For more information, visit: https://rustdesk.com/docs
 
 /// Print help information for specific commands
 pub fn print_specific_help(command: &str) {
-    match command {
-        "password" | "--password" => print_password_help(),
-        "option" | "--option" => print_option_help(),
-        "list-options" | "--list-options" => print_list_options_help(),
-        "set-id" | "--set-id" => print_set_id_help(),
-        "assign" | "--assign" => print_assign_help(),
-        "connect" | "--connect" => print_connect_help(),
-        "service" | "--service" | "--install-service" | "--uninstall-service" | "--start-service" | "--stop-service" | "--status" => print_service_help(),
-        "config" | "--config" | "--import-config" => print_config_help(),
+    // Strip leading -- prefix if present to support both formats
+    let cmd = command.strip_prefix("--").unwrap_or(command);
+
+    match cmd {
+        // Information commands
+        "get-id" => print_get_id_help(),
+        "version" => print_version_help(),
+        "build-date" => print_build_date_help(),
+
+        // Configuration commands
+        "password" => print_password_help(),
+        "set-unlock-pin" => print_set_unlock_pin_help(),
+        "set-id" => print_set_id_help(),
+        "option" => print_option_help(),
+        "list-options" => print_list_options_help(),
+        "config" | "import-config" => print_config_help(),
+
+        // Connection commands
+        "connect" => print_connect_help(),
+        "file-transfer" => print_file_transfer_help(),
+        "port-forward" => print_port_forward_help(),
+        "rdp" => print_rdp_help(),
+        "play" => print_play_help(),
+
+        // UI mode commands
+        "gui" => print_gui_help(),
+        "server" => print_server_help(),
+        "tray" => print_tray_help(),
+        "cm" | "cm-no-ui" => print_cm_help(),
+        "whiteboard" => print_whiteboard_help(),
+
+        // Service management
+        "service" | "install-service" | "uninstall-service" | "start-service" | "stop-service" | "status" => print_service_help(),
+
+        // Device management
+        "assign" => print_assign_help(),
+
+        // Windows-specific
+        "install" | "uninstall" | "silent-install" => print_install_help(),
+
         _ => {
             println!("Unknown command: {}", command);
             println!("Run 'rustdesk --help' for list of available commands.");
@@ -619,5 +634,474 @@ NOTES:
 
 SEE ALSO:
     --option    Set individual configuration options
+"#);
+}
+
+// ============================================================================
+// INFORMATION COMMANDS
+// ============================================================================
+
+/// Print help for --get-id command
+fn print_get_id_help() {
+    println!(r#"Display this device's ID
+
+USAGE:
+    rustdesk --get-id
+
+DESCRIPTION:
+    Displays the unique ID of this RustDesk device. This ID is used by
+    remote users to connect to this device.
+
+EXAMPLES:
+    # Get this device's ID
+    rustdesk --get-id
+
+OUTPUT:
+    123456789
+
+NOTES:
+    - The ID is generated automatically on first run
+    - ID can be customized using --set-id (requires admin privileges)
+    - Other users need this ID to connect to your device
+    - Does not require administrative privileges
+
+SEE ALSO:
+    --set-id    Set custom device ID
+"#);
+}
+
+/// Print help for --version command
+fn print_version_help() {
+    println!(r#"Display version information
+
+USAGE:
+    rustdesk --version
+
+DESCRIPTION:
+    Displays the RustDesk version number.
+
+EXAMPLES:
+    # Show version
+    rustdesk --version
+
+OUTPUT:
+    1.4.3
+
+SEE ALSO:
+    --build-date    Show build date
+"#);
+}
+
+/// Print help for --build-date command
+fn print_build_date_help() {
+    println!(r#"Display build date
+
+USAGE:
+    rustdesk --build-date
+
+DESCRIPTION:
+    Displays when this RustDesk binary was built.
+
+EXAMPLES:
+    # Show build date
+    rustdesk --build-date
+
+SEE ALSO:
+    --version    Show version number
+"#);
+}
+
+/// Print help for --set-unlock-pin command
+fn print_set_unlock_pin_help() {
+    println!(r#"Set unlock PIN for additional security
+
+USAGE:
+    sudo rustdesk --set-unlock-pin <PIN>
+
+DESCRIPTION:
+    Sets a PIN code required to unlock RustDesk settings on this device.
+    This provides an additional layer of security to prevent unauthorized
+    configuration changes.
+
+REQUIREMENTS:
+    - RustDesk must be installed (not portable mode)
+    - Requires administrative/root privileges
+
+EXAMPLES:
+    # Set unlock PIN
+    sudo rustdesk --set-unlock-pin 1234
+
+    # On Windows (run as Administrator)
+    rustdesk.exe --set-unlock-pin 1234
+
+NOTES:
+    - PIN should be numeric
+    - PIN is stored securely
+    - Required to access settings UI after being set
+    - Different from connection password
+
+SEE ALSO:
+    --password    Set permanent connection password
+"#);
+}
+
+// ============================================================================
+// CONNECTION COMMANDS
+// ============================================================================
+
+/// Print help for --file-transfer command
+fn print_file_transfer_help() {
+    println!(r#"Start file transfer session
+
+USAGE:
+    rustdesk --file-transfer <ID> [OPTIONS]
+
+DESCRIPTION:
+    Initiate a file transfer session with a remote device. Opens a
+    dedicated file manager interface for transferring files between
+    local and remote systems.
+
+OPTIONS:
+    --password <PASSWORD>    Provide password for connection
+
+EXAMPLES:
+    # Start file transfer session
+    rustdesk --file-transfer 123456789
+
+    # With password
+    rustdesk --file-transfer 123456789 --password MyPassword
+
+FEATURES:
+    - Browse remote filesystem
+    - Upload/download files and folders
+    - Multi-file selection support
+    - Progress tracking
+    - Resume capability for interrupted transfers
+
+NOTES:
+    - File transfer must be enabled on remote device
+    - Large file transfers may take time depending on network speed
+    - Transfers use secure encrypted connection
+
+SEE ALSO:
+    --connect       Standard remote desktop connection
+    --port-forward  Port forwarding session
+"#);
+}
+
+/// Print help for --port-forward command
+fn print_port_forward_help() {
+    println!(r#"Start port forwarding session
+
+USAGE:
+    rustdesk --port-forward <ID>
+
+DESCRIPTION:
+    Initiate a port forwarding/tunnel session with a remote device.
+    Allows you to access remote network services through the RustDesk
+    connection.
+
+EXAMPLES:
+    # Start port forwarding session
+    rustdesk --port-forward 123456789
+
+USE CASES:
+    - Access remote database servers
+    - Connect to remote web services
+    - Tunnel through firewalls
+    - Access services on remote network
+
+NOTES:
+    - Port forwarding must be enabled on remote device
+    - Configure port mappings in the UI after connection
+    - All traffic is encrypted through RustDesk tunnel
+
+SEE ALSO:
+    --connect       Standard remote desktop connection
+    --file-transfer File transfer session
+"#);
+}
+
+/// Print help for --rdp command
+fn print_rdp_help() {
+    println!(r#"Start RDP session
+
+USAGE:
+    rustdesk --rdp <ID>
+
+DESCRIPTION:
+    Initiate a Remote Desktop Protocol (RDP) session through RustDesk
+    to a Windows remote device.
+
+EXAMPLES:
+    # Start RDP session
+    rustdesk --rdp 123456789
+
+REQUIREMENTS:
+    - Remote device must be Windows with RDP enabled
+    - RustDesk must be configured to allow RDP
+    - Appropriate firewall rules on remote device
+
+NOTES:
+    - Uses native Windows RDP protocol
+    - May provide better performance for Windows-to-Windows connections
+    - Requires RDP to be enabled on remote Windows system
+
+SEE ALSO:
+    --connect    Standard RustDesk remote desktop connection
+"#);
+}
+
+/// Print help for --play command
+fn print_play_help() {
+    println!(r#"Play session recording
+
+USAGE:
+    rustdesk --play <ID_OR_PATH>
+
+DESCRIPTION:
+    Play back a recorded RustDesk session. Can play recordings from
+    either a remote device ID or a local file path.
+
+EXAMPLES:
+    # Play remote device's recordings
+    rustdesk --play 123456789
+
+    # Play local recording file
+    rustdesk --play /path/to/recording.rdp
+
+FEATURES:
+    - Play/pause controls
+    - Seek through recording
+    - View recorded sessions for review or training
+
+NOTES:
+    - Session recording must be enabled for sessions to be recorded
+    - Recordings are stored locally on the device that recorded them
+    - File format is RustDesk-specific
+
+SEE ALSO:
+    --option allow-auto-record-incoming Y    Enable incoming session recording
+    --option allow-auto-record-outgoing Y    Enable outgoing session recording
+"#);
+}
+
+// ============================================================================
+// UI MODE COMMANDS
+// ============================================================================
+
+/// Print help for --gui command
+fn print_gui_help() {
+    println!(r#"Start graphical user interface
+
+USAGE:
+    rustdesk --gui
+
+DESCRIPTION:
+    Start RustDesk with the graphical user interface (GUI). This is
+    the default mode when RustDesk is launched without arguments in
+    a desktop environment.
+
+EXAMPLES:
+    # Start GUI
+    rustdesk --gui
+
+NOTES:
+    - Opens the main RustDesk window
+    - Shows ID, connection history, and settings
+    - Allows initiating outgoing connections
+    - Default mode for desktop use
+
+SEE ALSO:
+    --server    Run in server mode with tray icon
+    --tray      Run tray icon only
+"#);
+}
+
+/// Print help for --server command
+fn print_server_help() {
+    println!(r#"Run server mode with tray icon
+
+USAGE:
+    rustdesk --server
+
+DESCRIPTION:
+    Run RustDesk in server/daemon mode with a system tray icon.
+    Allows incoming connections and provides tray access to settings
+    and status.
+
+EXAMPLES:
+    # Start server mode
+    rustdesk --server
+
+FEATURES:
+    - Accept incoming connections
+    - System tray icon for quick access
+    - Background operation
+    - Can run alongside other RustDesk instances
+
+NOTES:
+    - Does not open main window by default
+    - Click tray icon to access main window
+    - Suitable for unattended access scenarios
+    - Runs in foreground (not as system service)
+
+SEE ALSO:
+    --install-service    Install as system service
+    --tray              Tray icon only (no server)
+"#);
+}
+
+/// Print help for --tray command
+fn print_tray_help() {
+    println!(r#"Run system tray only
+
+USAGE:
+    rustdesk --tray
+
+DESCRIPTION:
+    Run only the system tray icon without server functionality.
+    Provides quick access to RustDesk features through the tray.
+
+EXAMPLES:
+    # Start tray only
+    rustdesk --tray
+
+NOTES:
+    - Tray icon provides access to main window
+    - Does not accept incoming connections by itself
+    - Lightweight option for occasional use
+    - Requires service or server mode for incoming connections
+
+SEE ALSO:
+    --server    Run server with tray
+    --gui       Start main window
+"#);
+}
+
+/// Print help for --cm command
+fn print_cm_help() {
+    println!(r#"Start connection manager
+
+USAGE:
+    rustdesk --cm          # With UI
+    rustdesk --cm-no-ui    # Without UI
+
+DESCRIPTION:
+    Start the RustDesk connection manager for managing multiple
+    simultaneous connections and address book.
+
+OPTIONS:
+    --cm         Start with graphical interface
+    --cm-no-ui   Start without UI (background mode)
+
+EXAMPLES:
+    # Start connection manager with UI
+    rustdesk --cm
+
+    # Start in background
+    rustdesk --cm-no-ui
+
+FEATURES:
+    - Manage multiple connections
+    - Address book integration
+    - Connection history
+    - Bulk operations
+    - Group management
+
+NOTES:
+    - Useful for IT administrators
+    - Can manage connections to multiple devices
+    - Integrates with RustDesk Pro features
+
+SEE ALSO:
+    --gui    Standard GUI mode
+"#);
+}
+
+/// Print help for --whiteboard command
+fn print_whiteboard_help() {
+    println!(r#"Start whiteboard session
+
+USAGE:
+    rustdesk --whiteboard
+
+DESCRIPTION:
+    Start a collaborative whiteboard session for real-time drawing
+    and annotation with remote participants.
+
+EXAMPLES:
+    # Start whiteboard
+    rustdesk --whiteboard
+
+FEATURES:
+    - Real-time collaborative drawing
+    - Multiple drawing tools
+    - Text annotation
+    - Shape tools
+    - Color selection
+
+NOTES:
+    - Requires network connectivity
+    - Can be used for presentations and collaboration
+    - All participants can draw simultaneously
+
+SEE ALSO:
+    --connect    Remote desktop connection
+"#);
+}
+
+// ============================================================================
+// WINDOWS-SPECIFIC COMMANDS
+// ============================================================================
+
+/// Print help for Windows install/uninstall commands
+fn print_install_help() {
+    println!(r#"Windows installation commands
+
+USAGE:
+    rustdesk --install
+    rustdesk --uninstall
+    rustdesk --silent-install
+
+DESCRIPTION:
+    Install, uninstall, or silently install RustDesk on Windows.
+
+--install:
+    Interactive installation wizard. Prompts for installation options
+    such as install location, shortcuts, and startup settings.
+
+--silent-install:
+    Silent installation with default options. No user interaction
+    required. Suitable for automated deployments.
+
+--uninstall:
+    Remove RustDesk from the system. Stops all services and removes
+    installed files.
+
+REQUIREMENTS:
+    - Windows operating system
+    - Administrative privileges required
+    - For portable executable, use --install to convert to installed version
+
+EXAMPLES:
+    # Interactive install
+    rustdesk.exe --install
+
+    # Silent install (for deployment)
+    rustdesk.exe --silent-install
+
+    # Uninstall
+    "C:\Program Files\RustDesk\RustDesk.exe" --uninstall
+
+NOTES:
+    - Installation includes service registration
+    - Uninstall preserves configuration by default
+    - Silent install uses default settings
+    - Installed version can auto-update
+
+SEE ALSO:
+    --install-service     Install service component only
+    --uninstall-service   Remove service component only
 "#);
 }

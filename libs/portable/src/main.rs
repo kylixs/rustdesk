@@ -31,6 +31,10 @@ const APPNAME_RUNTIME_ENV_KEY: &str = "RUSTDESK_APPNAME";
 #[cfg(windows)]
 const SET_FOREGROUND_WINDOW_ENV_KEY: &str = "SET_FOREGROUND_WINDOW";
 
+/// Parameters that trigger GUI mode (use `execute` instead of `execute_cli_mode`)
+/// When these parameters are present or no parameters are provided, the program runs in GUI mode
+const GUI_MODE_PARAMS: &[&str] = &["--connect", "--gui"];
+
 use std::sync::atomic::AtomicU8;
 use std::sync::OnceLock;
 
@@ -488,9 +492,75 @@ fn verify_file_integrity(reader: &BinaryReader, dir: &Path) -> bool {
     true
 }
 
-/// Check if running in CLI mode (any argument starting with --)
+/// Check if running in help mode (CLI help)
+/// Returns true when:
+/// - First parameter is "help", "--help", or "-h"
+/// - Second parameter is "--help" or "-h" (for command help like: --connect --help)
+///
+/// Examples:
+/// - rustdesk --help → true
+/// - rustdesk -h → true
+/// - rustdesk help → true
+/// - rustdesk help --connect → true
+/// - rustdesk --connect --help → true
+/// - rustdesk --connect -h → true
+fn is_help_mode(args: &Vec<String>) -> bool {
+    if args.is_empty() {
+        return false;
+    }
+
+    // Check first parameter
+    if let Some(first_arg) = args.first() {
+        if first_arg == "help" || first_arg == "--help" || first_arg == "-h" {
+            return true;
+        }
+    }
+
+    // Check second parameter for command help (e.g., --connect --help)
+    if args.len() > 1 {
+        let second_arg = &args[1];
+        if second_arg == "--help" || second_arg == "-h" {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if running in CLI mode
+/// Returns false (GUI mode) when:
+/// - No parameters are provided, or
+/// - First parameter is in GUI_MODE_PARAMS (--connect, --gui) and not help mode
+/// Returns true (CLI mode) otherwise
+///
+/// Examples:
+/// - rustdesk → GUI mode
+/// - rustdesk --connect 123456 → GUI mode
+/// - rustdesk --gui → GUI mode
+/// - rustdesk --connect -h → CLI mode (help)
+/// - rustdesk --connect --help → CLI mode (help)
+/// - rustdesk help --connect → CLI mode (help)
+/// - rustdesk --version → CLI mode
 fn is_cli_mode(args: &Vec<String>) -> bool {
-    args.iter().any(|arg| arg.starts_with("--"))
+    // Help mode → CLI mode
+    if is_help_mode(args) {
+        return true;
+    }
+
+    // If no parameters → GUI mode
+    if args.is_empty() {
+        return false;
+    }
+
+    // Check if first parameter is a GUI mode parameter
+    if let Some(first_arg) = args.first() {
+        if GUI_MODE_PARAMS.contains(&first_arg.as_str()) {
+            return false;
+        }
+    }
+
+    // All other cases → CLI mode
+    true
 }
 
 /// Exit process with elapsed time logging
@@ -868,7 +938,7 @@ fn is_windows_7() -> bool {
 }
 
 fn execute(path: PathBuf, args: Vec<String>, _ui: bool) {
-    log::info!("executing {}", path.display());
+    log::info!("executing: {} {:?}", path.display(), sanitize_args(&args));
     // setup env
     let exe = std::env::current_exe().unwrap_or_default();
     let exe_name = exe.file_name().unwrap_or_default();
@@ -968,10 +1038,7 @@ fn main() {
             // Check for 'help xxx' format (e.g., rustdesk help verify)
             if args[0] == "help" && args.len() > 1 {
                 let command = args[1].as_str();
-                let cmd_without_prefix = command.strip_prefix("--").unwrap_or(command);
-                // Only handle packer commands
-                if matches!(cmd_without_prefix, "dump-manifest" | "verify" | "fix") {
-                    print_command_help(command);
+                if proc_command_help(command) {
                     return;
                 }
                 // For non-packer commands, pass through to rustdesk.exe
@@ -980,10 +1047,7 @@ fn main() {
             // Check for 'xxx --help/-h' format (e.g., rustdesk verify --help)
             if args.len() > 1 && (args[1] == "--help" || args[1] == "-h") {
                 let command = args[0].as_str();
-                let cmd_without_prefix = command.strip_prefix("--").unwrap_or(command);
-                // Only handle packer commands
-                if matches!(cmd_without_prefix, "dump-manifest" | "verify" | "fix") {
-                    print_command_help(command);
+                if proc_command_help(command) {
                     return;
                 }
                 // For non-packer commands, pass through to rustdesk.exe
@@ -994,19 +1058,12 @@ fn main() {
                     // Check if there's a subcommand for detailed help
                     if args.len() > 1 {
                         let command = args[1].as_str();
-                        // Strip -- prefix for checking (support both --verify and verify)
-                        let cmd_without_prefix = command.strip_prefix("--").unwrap_or(command);
-                        // Only handle packer commands
-                        if matches!(cmd_without_prefix, "dump-manifest" | "verify" | "fix") {
-                            print_command_help(command);
+                        if proc_command_help(command) {
                             return;
                         }
-                        // For non-packer commands (e.g. --help status),
                         // pass through directly to rustdesk.exe without showing header
-                        // Don't return - let --help <arg> pass through
                     } else {
                         // Only --help (no subcommand): print portable commands header,
-                        // then continue to pass --help to rustdesk.exe
                         print_help_header();
                         // Don't return - let --help pass through to rustdesk.exe
                     }
@@ -1068,9 +1125,16 @@ fn main() {
             log::error!("Setup failed");
         }
     }
+}
 
-    let elapsed = get_start_time().elapsed();
-    log::info!("Portable packer exiting, elapsed: {:.3}s", elapsed.as_secs_f64());
+fn proc_command_help(command: &str) -> bool {
+    let cmd_without_prefix = command.strip_prefix("--").unwrap_or(command);
+    // Only handle packer commands
+    if matches!(cmd_without_prefix, "dump-manifest" | "verify" | "fix") {
+        print_command_help(command);
+        return true;
+    }
+    false
 }
 
 /// Print portable commands help header
