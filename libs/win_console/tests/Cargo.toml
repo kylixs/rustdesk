@@ -1,0 +1,27 @@
+[package]
+name = "console_test"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "console_test"
+path = "src/main.rs"
+
+[features]
+default = []
+# CLI feature: when enabled, forces console subsystem
+cli = []
+
+[workspace]
+
+[dependencies]
+win_console = { path = ".." }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "libloaderapi", "wingdi", "winbase"] }
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+codegen-units = 1

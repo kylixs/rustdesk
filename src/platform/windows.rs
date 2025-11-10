@@ -39,6 +39,7 @@ use winapi::{
     ctypes::c_void,
     shared::{minwindef::*, ntdef::NULL, windef::*, winerror::*},
     um::{
+        debugapi::OutputDebugStringA,
         errhandlingapi::GetLastError,
         handleapi::{CloseHandle, INVALID_HANDLE_VALUE},
         libloaderapi::{
@@ -87,6 +88,17 @@ use windows_service::{
     service_control_handler::{self, ServiceControlHandlerResult},
 };
 use winreg::{enums::*, RegKey};
+
+// Helper function to output debug string that DebugView can capture
+pub fn debug_output(msg: &str) {
+    if let Ok(c_msg) = CString::new(msg) {
+        unsafe {
+            OutputDebugStringA(c_msg.as_ptr());
+        }
+    }
+    // Also log to file
+    log::info!("[DEBUGVIEW] {}", msg);
+}
 
 pub const FLUTTER_RUNNER_WIN32_WINDOW_CLASS: &'static str = "FLUTTER_RUNNER_WIN32_WINDOW"; // main window, install window
 pub const EXPLORER_EXE: &'static str = "explorer.exe";
@@ -471,9 +483,63 @@ fn fix_cursor_mask(
 define_windows_service!(ffi_service_main, service_main);
 
 fn service_main(arguments: Vec<OsString>) {
+    // Output diagnostic information to DebugView
+    debug_output("================================================================================");
+    debug_output("[RUSTDESK SERVICE] Windows Service Entry Point");
+    debug_output("================================================================================");
+
+    // Print current time
+    let now = chrono::Local::now();
+    debug_output(&format!("[TIME] {}", now.format("%Y-%m-%d %H:%M:%S%.3f")));
+
+    // Print process path
+    match std::env::current_exe() {
+        Ok(path) => debug_output(&format!("[PROCESS] Executable: {}", path.display())),
+        Err(e) => debug_output(&format!("[PROCESS] Failed to get executable path: {}", e)),
+    }
+
+    // Print process ID
+    debug_output(&format!("[PROCESS] PID: {}", std::process::id()));
+
+    // Print arguments
+    let args: Vec<String> = std::env::args().collect();
+    debug_output(&format!("[ARGUMENTS] Count: {}", args.len()));
+    for (i, arg) in args.iter().enumerate() {
+        debug_output(&format!("[ARGUMENTS]   [{}]: {}", i, arg));
+    }
+
+    // Print service arguments
+    debug_output(&format!("[SERVICE_ARGS] Count: {}", arguments.len()));
+    for (i, arg) in arguments.iter().enumerate() {
+        debug_output(&format!("[SERVICE_ARGS]   [{}]: {:?}", i, arg));
+    }
+
+    // Print environment
+    match std::env::var("USERNAME") {
+        Ok(user) => debug_output(&format!("[ENV] USERNAME: {}", user)),
+        Err(_) => debug_output("[ENV] USERNAME: <not set>"),
+    }
+
+    match std::env::var("USERDOMAIN") {
+        Ok(domain) => debug_output(&format!("[ENV] USERDOMAIN: {}", domain)),
+        Err(_) => debug_output("[ENV] USERDOMAIN: <not set>"),
+    }
+
+    debug_output(&format!("[ENV] TEMP: {:?}", std::env::temp_dir()));
+    debug_output(&format!("[ENV] Current Directory: {:?}", std::env::current_dir().unwrap_or_default()));
+
+    debug_output("================================================================================");
+    debug_output("[SERVICE] Starting run_service...");
+    debug_output("================================================================================");
+
     if let Err(e) = run_service(arguments) {
+        debug_output(&format!("[SERVICE] run_service failed: {}", e));
         log::error!("run_service failed: {}", e);
     }
+
+    debug_output("================================================================================");
+    debug_output("[SERVICE] Service execution completed");
+    debug_output("================================================================================");
 }
 
 pub fn start_os_service() {
@@ -535,6 +601,9 @@ extern "system" {
 
 #[tokio::main(flavor = "current_thread")]
 async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
+    debug_output("[SERVICE] run_service() entered");
+    debug_output(&format!("[SERVICE] App name: {}", crate::get_app_name()));
+
     let event_handler = move |control_event| -> ServiceControlHandlerResult {
         log::info!("Got service control event: {:?}", control_event);
         match control_event {
@@ -548,7 +617,9 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     };
 
     // Register system service event handler
+    debug_output("[SERVICE] Registering service control handler...");
     let status_handle = service_control_handler::register(crate::get_app_name(), event_handler)?;
+    debug_output("[SERVICE] Service control handler registered successfully");
 
     let next_status = ServiceStatus {
         // Should match the one from system service registry
@@ -567,12 +638,25 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     };
 
     // Tell the system that the service is running now
+    debug_output("[SERVICE] Setting service status to RUNNING...");
     status_handle.set_service_status(next_status)?;
+    debug_output("[SERVICE] Service status set to RUNNING");
 
     let mut session_id = unsafe { get_current_session(share_rdp()) };
+    debug_output(&format!("[SERVICE] Current session id: {}", session_id));
     log::info!("session id {}", session_id);
+
+    debug_output(&format!("[SERVICE] Launching server for session {}...", session_id));
     let mut h_process = launch_server(session_id, true).await.unwrap_or(NULL);
+    if h_process == NULL {
+        debug_output("[SERVICE] WARNING: launch_server returned NULL");
+    } else {
+        debug_output(&format!("[SERVICE] Server launched successfully, handle: {:?}", h_process));
+    }
+
+    debug_output("[SERVICE] Creating IPC listener...");
     let mut incoming = ipc::new_listener(crate::POSTFIX_SERVICE).await?;
+    debug_output("[SERVICE] IPC listener created successfully");
     let mut stored_usid = None;
     loop {
         let sids: Vec<_> = get_available_sessions(false)
@@ -1463,6 +1547,10 @@ if exist \"{tmp_path}\\{app_name} Tray.lnk\" del /f /q \"{tmp_path}\\{app_name} 
         Config::set_option("api-server".into(), lic.api);
     }
 
+    // Disable tray shortcuts for portable version - don't create shortcuts to Start Menu/Startup folder
+    let tray_shortcuts = "".to_owned();
+
+    /* Original code - disabled for portable version
     let tray_shortcuts = if config::is_outgoing_only() {
         "".to_owned()
     } else {
@@ -1471,6 +1559,7 @@ cscript \"{tray_shortcut}\"
 copy /Y \"{tmp_path}\\{app_name} Tray.lnk\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"
 ")
     };
+    */
 
     let install_remote_printer = if install_printer {
         // No need to use `|| true` here.
@@ -2642,6 +2731,42 @@ pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
     std::process::exit(0);
 }
 
+pub fn stop_service() -> bool {
+    log::info!("Stopping service...");
+    let app_name = crate::get_app_name();
+    let cmds = format!(
+        "
+    chcp 65001
+    sc stop {app_name}
+    "
+    );
+    if let Err(err) = run_cmds(cmds, false, "stop_service") {
+        log::error!("Failed to stop service: {}", err);
+        return false;
+    }
+    Config::set_option("stop-service".into(), "Y".into());
+    log::info!("Service stopped successfully");
+    true
+}
+
+pub fn start_service() -> bool {
+    log::info!("Starting service...");
+    let app_name = crate::get_app_name();
+    let cmds = format!(
+        "
+    chcp 65001
+    sc start {app_name}
+    "
+    );
+    if let Err(err) = run_cmds(cmds, false, "start_service") {
+        log::error!("Failed to start service: {}", err);
+        return false;
+    }
+    Config::set_option("stop-service".into(), "".into());
+    log::info!("Service started successfully");
+    true
+}
+
 pub fn install_service() -> bool {
     log::info!("Installing service...");
     let _installing = crate::platform::InstallingService::new();
@@ -2655,8 +2780,9 @@ pub fn install_service() -> bool {
         "
 chcp 65001
 taskkill /F /IM {app_name}.exe{filter}
-cscript \"{tray_shortcut}\"
-copy /Y \"{tmp_path}\\{app_name} Tray.lnk\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"
+REM Disabled for portable version - don't create shortcuts to Start Menu/Startup folder
+REM cscript \"{tray_shortcut}\"
+REM copy /Y \"{tmp_path}\\{app_name} Tray.lnk\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"
 {import_config}
 {create_service}
 if exist \"{tray_shortcut}\" del /f /q \"{tray_shortcut}\"
@@ -2921,9 +3047,9 @@ fn run_after_run_cmds(silent: bool) {
             .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
             .spawn());
     }
-    if Config::get_option("stop-service") != "Y" {
-        allow_err!(std::process::Command::new(&exe).arg("--tray").spawn());
-    }
+    // if Config::get_option("stop-service") != "Y" {
+    //     allow_err!(std::process::Command::new(&exe).arg("--tray").spawn());
+    // }
     std::thread::sleep(std::time::Duration::from_millis(300));
 }
 
@@ -3086,6 +3212,39 @@ pub fn is_service_running(service_name: &str) -> bool {
     unsafe {
         let service_name = wide_string(service_name);
         is_service_running_w(service_name.as_ptr() as _)
+    }
+}
+
+pub fn get_service_status() -> String {
+    let service_name = crate::get_app_name();
+    if is_service_running(&service_name) {
+        "Running".to_string()
+    } else {
+        use winapi::um::winsvc::{OpenSCManagerW, OpenServiceW, CloseServiceHandle, SC_MANAGER_CONNECT, SERVICE_QUERY_STATUS};
+        use winapi::shared::winerror::ERROR_SERVICE_DOES_NOT_EXIST;
+
+        unsafe {
+            let sc_manager = OpenSCManagerW(std::ptr::null(), std::ptr::null(), SC_MANAGER_CONNECT);
+            if sc_manager.is_null() {
+                return "Error: Cannot open service manager".to_string();
+            }
+
+            let service_name_wide = wide_string(&service_name);
+            let service = OpenServiceW(sc_manager, service_name_wide.as_ptr() as _, SERVICE_QUERY_STATUS);
+            CloseServiceHandle(sc_manager);
+
+            if service.is_null() {
+                let error = winapi::um::errhandlingapi::GetLastError();
+                if error == ERROR_SERVICE_DOES_NOT_EXIST {
+                    return "Not installed".to_string();
+                } else {
+                    return "Error: Cannot query service".to_string();
+                }
+            }
+
+            CloseServiceHandle(service);
+            "Stopped".to_string()
+        }
     }
 }
 

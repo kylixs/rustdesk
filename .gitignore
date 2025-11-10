@@ -1,5 +1,5 @@
 /build
-/target
+target
 .vscode
 .idea
 .DS_Store
@@ -8,19 +8,20 @@ src/ui/inline.rs
 extractor
 __pycache__
 src/version.rs
-*dmg
-*exe
-*tgz
+*.dmg
+*.exe
+*.tgz
 cert.pfx
 *.bak
-*png
-*svg
-*jpg
+*.png
+*.svg
+*.jpg
 sciter.dll
 **pdb
 src/bridge_generated.rs
 src/bridge_generated.io.rs
-*deb
+*.deb
+*.rpm
 rustdesk
 *.cache
 # appimage
@@ -51,7 +52,18 @@ lib/generated_bridge.dart
 # build cache in examples
 examples/**/target/
 # ===
+vcpkg
 vcpkg_installed
 flutter/lib/generated_plugin_registrant.dart
 libsciter.dylib
 flutter/web/
+temp/
+SignOutput
+*.zip
+*.dll
+*.com
+*.log
+*.txt
+libs/portable/app_metadata.toml
+libs/portable/Runner.res
+.lh

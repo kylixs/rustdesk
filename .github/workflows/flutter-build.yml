@@ -39,7 +39,7 @@ env:
   # 2. Update the `VCPKG_COMMIT_ID` in `ci.yml` and `playground.yml`.
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836" # 2025.01.13, got "/opt/artifacts/vcpkg/vcpkg: No such file or directory" with latest version
-  VERSION: "1.4.3"
+  VERSION: "1.4.3-jlc20"
   NDK_VERSION: "r27c"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
@@ -128,7 +128,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: ${{ env.SCITER_RUST_VERSION }}
+          toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
@@ -256,7 +256,9 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Build msi
-        if: env.UPLOAD_ARTIFACT == 'true'
+        # Temporarily disabled
+        if: false
+        # if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           pushd ./res/msi
           python preprocess.py --arp -d ../../rustdesk
@@ -286,7 +288,7 @@ jobs:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
     runs-on: ${{ matrix.job.os }}
     # Temporarily disable this action due to additional test is needed.
-    # if: false
+    if: false
     strategy:
       fail-fast: false
       matrix:
@@ -433,7 +435,8 @@ jobs:
             ./SignOutput/rustdesk-*.exe
 
   build-rustdesk-ios:
-    if: ${{ inputs.upload-artifact }}
+    if: false # Disabled iOS build
+    # if: ${{ inputs.upload-artifact }}
     name: build rustdesk ios ipa
     runs-on: ${{ matrix.job.os }}
     needs: [generate-bridge]
@@ -759,50 +762,87 @@ jobs:
           files: |
             rustdesk*-${{ matrix.job.arch }}.dmg
 
-  publish_unsigned:
+  publish_unsigned_windows_x86_64:
     needs:
-      - build-for-macOS
       - build-for-windows-flutter
-      - build-for-windows-sciter
     runs-on: ubuntu-latest
     if: ${{ inputs.upload-artifact }}
     steps:
-      - name: Download artifacts
+      - name: Download Windows x86_64 artifacts
+        uses: actions/download-artifact@master
+        with:
+          name: rustdesk-unsigned-windows-x86_64
+          path: ./
+
+      - name: Publish Windows x86_64 unsigned artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: |
+            ./*.exe
+            ./*.msi
+            ./*.zip
+
+  # publish_unsigned_windows_x86:
+  #   needs:
+  #     - build-for-windows-flutter
+  #   runs-on: ubuntu-latest
+  #   if: ${{ inputs.upload-artifact }}
+  #   steps:
+  #     - name: Download Windows x86 artifacts
+  #       uses: actions/download-artifact@master
+  #       with:
+  #         name: rustdesk-unsigned-windows-x86
+  #         path: ./
+
+  #     - name: Publish Windows x86 unsigned artifacts
+  #       uses: softprops/action-gh-release@v1
+  #       with:
+  #         prerelease: true
+  #         tag_name: ${{ env.TAG_NAME }}
+  #         files: ./*
+
+  publish_unsigned_macos_x86_64:
+    needs:
+      - build-for-macOS
+    runs-on: ubuntu-latest
+    if: ${{ inputs.upload-artifact }}
+    steps:
+      - name: Download macOS x86_64 artifacts
         uses: actions/download-artifact@master
         with:
           name: rustdesk-unsigned-macos-x86_64
           path: ./
 
-      - name: Download Artifacts
+      - name: Publish macOS x86_64 unsigned artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: ./*
+
+  publish_unsigned_macos_aarch64:
+    needs:
+      - build-for-macOS
+    runs-on: ubuntu-latest
+    if: ${{ inputs.upload-artifact }}
+    steps:
+      - name: Download macOS aarch64 artifacts
         uses: actions/download-artifact@master
         with:
           name: rustdesk-unsigned-macos-aarch64
           path: ./
 
-      - name: Download Artifacts
-        uses: actions/download-artifact@master
-        with:
-          name: rustdesk-unsigned-windows-x86_64
-          path: ./windows-x86_64/
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@master
-        with:
-          name: rustdesk-unsigned-windows-x86
-          path: ./windows-x86/
-
-      - name: Combine unsigned app
-        run: |
-          tar czf rustdesk-${{ env.VERSION }}-unsigned.tar.gz *.dmg windows-x86_64 windows-x86
-
-      - name: Publish unsigned app
+      - name: Publish macOS aarch64 unsigned artifacts
         uses: softprops/action-gh-release@v1
         with:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
-          files: rustdesk-${{ env.VERSION }}-unsigned.tar.gz
+          files: ./*
 
   build-rustdesk-android:
+    if: false # Disabled Android build
     needs: [generate-bridge]
     name: build rustdesk android apk ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
@@ -1093,9 +1133,10 @@ jobs:
             signed-apk/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.apk
 
   build-rustdesk-android-universal:
+    if: false # Disabled Android build
     needs: [build-rustdesk-android]
     name: build rustdesk android universal apk
-    if: ${{ inputs.upload-artifact }}
+    # if: ${{ inputs.upload-artifact }}
     runs-on: ubuntu-24.04
     env:
       reltype: release
@@ -1610,8 +1651,89 @@ jobs:
           files: |
             res/rustdesk-${{ env.VERSION }}*.zst
 
+  build-rustdesk-ubuntu18:
+    name: build rustdesk ubuntu18 ${{ matrix.job.arch }} (Two-Stage)
+    runs-on: ubuntu-latest
+    needs: [generate-bridge]
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - {
+              arch: x86_64,
+              target: x86_64-unknown-linux-gnu,
+              deb_arch: amd64,
+              vcpkg-triplet: x64-linux,
+            }
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download bridge artifact
+        uses: actions/download-artifact@master
+        with:
+          name: bridge-artifact
+          path: ${{ github.workspace }}
+
+      - name: Build in Ubuntu 18.04 container
+        run: |
+          echo "==========================================="
+          echo "Building RustDesk in Ubuntu 18.04 container"
+          echo "==========================================="
+
+          # Run Ubuntu 18.04 container with workspace mounted
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            -e RUST_VERSION=${{ env.RUST_VERSION }} \
+            -e FLUTTER_VERSION=${{ env.FLUTTER_VERSION }} \
+            -e VERSION=${{ env.VERSION }} \
+            ubuntu:18.04 \
+            bash -c '
+              echo "Inside Ubuntu 18.04 container"
+              cat /etc/os-release | grep VERSION
+
+              echo ""
+              echo "==========================================="
+              echo "Step 1: Setup environment"
+              echo "==========================================="
+              bash scripts/setup-for-ubuntu18.sh
+
+              echo ""
+              echo "==========================================="
+              echo "Step 2: Build RustDesk"
+              echo "==========================================="
+              bash ./build-for-ubuntu18.sh
+
+              echo ""
+              echo "Build artifacts:"
+              ls -lh rustdesk*-ubuntu18.deb || echo "No .deb files found"
+            '
+
+          echo ""
+          echo "Back to host - verifying build artifacts"
+          ls -lh rustdesk*-ubuntu18.deb || echo "No .deb files found on host"
+
+      - name: Upload Ubuntu 18 Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-ubuntu18.deb
+          path: rustdesk-*-ubuntu18.deb
+
+      - name: Publish package
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: |
+            rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-ubuntu18.deb
   build-rustdesk-linux-sciter:
-    if: ${{ inputs.upload-artifact }}
+    if: false # Disabled Sciter build
+    # if: ${{ inputs.upload-artifact }}
     runs-on: ${{ matrix.job.on }}
     name: build-rustdesk-linux-sciter ${{ matrix.job.target }}
     strategy:
@@ -1890,7 +2012,7 @@ jobs:
     name: Build flatpak ${{ matrix.job.target }}${{ matrix.job.suffix }}
     needs:
       - build-rustdesk-linux
-      - build-rustdesk-linux-sciter
+      # - build-rustdesk-linux-sciter
     runs-on: ${{ matrix.job.on }}
     if: ${{ inputs.upload-artifact }}
     strategy:
@@ -1905,13 +2027,13 @@ jobs:
               arch: x86_64,
               suffix: "",
             }
-          - {
-              target: x86_64-unknown-linux-gnu,
-              distro: ubuntu22.04,
-              on: ubuntu-22.04,
-              arch: x86_64,
-              suffix: "-sciter",
-            }
+          # - {
+          #     target: x86_64-unknown-linux-gnu,
+          #     distro: ubuntu22.04,
+          #     on: ubuntu-22.04,
+          #     arch: x86_64,
+          #     suffix: "-sciter",
+          #   }
           - {
               target: aarch64-unknown-linux-gnu,
               # try out newer flatpak since error of "error: Nothing matches org.freedesktop.Platform in remote flathub"

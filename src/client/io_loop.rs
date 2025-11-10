@@ -1767,7 +1767,43 @@ impl<T: InvokeUiSession> Remote<T> {
                     }
                     Some(misc::Union::CloseReason(c)) => {
                         self.sent_close_reason = true; // The controlled end will close, no need to send close reason
-                        self.handler.msgbox("error", "Connection Error", &c, "");
+
+                        log::info!("Auto-closing window due to connection error: close_reason={}", &c);
+
+                        // Show system notification
+                        // Use alias (window title) if set, otherwise use ID
+                        let alias = self.handler.get_option("alias".to_owned());
+                        let display_name = if alias.is_empty() {
+                            self.handler.get_id()
+                        } else {
+                            alias
+                        };
+                        let current_time = chrono::Local::now().format("%H:%M:%S").to_string();
+
+                        // Customize notification based on close reason
+                        let (notification_title, notification_text) = if c == "Connection failed due to inactivity" {
+                            (
+                                "不活跃会话关闭通知",
+                                format!("{} {} 由于长时间无操作, 连接被自动断开", current_time, display_name)
+                            )
+                        } else {
+                            (
+                                "连接断开通知",
+                                format!("{} {} 连接已断开: {}", current_time, display_name, c)
+                            )
+                        };
+
+                        // Send cross-platform system notification
+                        crate::notification::send_notification(notification_title, &notification_text);
+
+                        // Close remote desktop window
+                        // This will send close_desktop event in Flutter or close window in Sciter
+                        self.handler.close_remote_desktop();
+
+                        // Also close the backend connection
+                        self.handler.close();
+
+                        log::info!("Connection closed, close_desktop event sent to UI");
                         return false;
                     }
                     Some(misc::Union::BackNotification(notification)) => {

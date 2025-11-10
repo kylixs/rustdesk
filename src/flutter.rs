@@ -692,6 +692,12 @@ impl InvokeUiSession for FlutterHandler {
     // unused in flutter
     fn close_success(&self) {}
 
+    fn close_remote_desktop(&self) {
+        // Send close_desktop event to trigger Flutter's closeConnection()
+        // This closes the desktop window automatically
+        self.push_event("close_desktop", &[("", "")], &[]);
+    }
+
     fn update_quality_status(&self, status: QualityStatus) {
         const NULL: String = String::new();
         self.push_event(

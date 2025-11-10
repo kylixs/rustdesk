@@ -1,6 +1,6 @@
 Name:       rustdesk
 Version:    1.4.3
-Release:    0
+Release:    1.jlc20%{?dist}
 Summary:    RPM package
 License:    GPL-3.0
 URL:        https://rustdesk.com

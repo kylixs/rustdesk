@@ -60,9 +60,15 @@ fn make_tray() -> hbb_common::ResultType<()> {
     let mut event_loop = EventLoopBuilder::new().build();
 
     let tray_menu = Menu::new();
-    let quit_i = MenuItem::new(translate("Stop service".to_owned()), true, None);
+    // let quit_i = MenuItem::new(translate("Stop service".to_owned()), true, None);
     let open_i = MenuItem::new(translate("Open".to_owned()), true, None);
-    tray_menu.append_items(&[&open_i, &quit_i]).ok();
+    #[cfg(target_os = "windows")]
+    let hide_i = MenuItem::new(translate("Hide".to_owned()), true, None);
+
+    #[cfg(target_os = "windows")]
+    tray_menu.append_items(&[&open_i, &hide_i]).ok();
+    #[cfg(not(target_os = "windows"))]
+    tray_menu.append_items(&[&open_i]).ok();
     let tooltip = |count: usize| {
         if count == 0 {
             format!(
@@ -156,18 +162,24 @@ fn make_tray() -> hbb_common::ResultType<()> {
         }
 
         if let Ok(event) = menu_channel.try_recv() {
-            if event.id == quit_i.id() {
-                /* failed in windows, seems no permission to check system process
-                if !crate::check_process("--server", false) {
-                    *control_flow = ControlFlow::Exit;
-                    return;
-                }
-                */
-                if !crate::platform::uninstall_service(false, false) {
-                    *control_flow = ControlFlow::Exit;
-                }
-            } else if event.id == open_i.id() {
+            // if event.id == quit_i.id() {
+            //     /* failed in windows, seems no permission to check system process
+            //     if !crate::check_process("--server", false) {
+            //         *control_flow = ControlFlow::Exit;
+            //         return;
+            //     }
+            //     */
+            //     if !crate::platform::uninstall_service(false, false) {
+            //         *control_flow = ControlFlow::Exit;
+            //     }
+            // }
+            if event.id == open_i.id() {
                 open_func();
+            }
+            #[cfg(target_os = "windows")]
+            if event.id == hide_i.id() {
+                log::info!("Hide tray menu clicked, exiting tray process");
+                *control_flow = ControlFlow::Exit;
             }
         }
 

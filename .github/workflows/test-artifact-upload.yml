@@ -1,0 +1,143 @@
+name: Test Artifact Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_size:
+        description: 'Number of test files to create'
+        required: false
+        default: '3'
+        type: choice
+        options:
+          - '1'
+          - '3'
+          - '5'
+
+jobs:
+  test-upload-in-container:
+    name: Test Upload in Ubuntu 18 Container (Two-Stage)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - {
+              arch: x86_64,
+              test_size: 3,
+            }
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build in Ubuntu 18.04 container
+        run: |
+          echo "=========================================="
+          echo "Building in Ubuntu 18.04 container..."
+          echo "=========================================="
+
+          # Run container with workspace mounted
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            ubuntu:18.04 \
+            bash -c '
+              echo "Inside Ubuntu 18.04 container"
+              cat /etc/os-release | grep VERSION
+
+              echo ""
+              echo "Creating test files..."
+
+              # Create small text file
+              echo "This is test file 1" > test-file-1.txt
+
+              # Create medium binary file (1MB)
+              dd if=/dev/urandom of=test-file-2.bin bs=1M count=1 2>/dev/null
+
+              # Create large binary file (5MB)
+              dd if=/dev/urandom of=test-file-3.bin bs=1M count=5 2>/dev/null
+
+              # Create log file
+              echo "Build started at $(date)" > build-test.log
+              echo "Test size: ${{ matrix.job.test_size }}" >> build-test.log
+              echo "Built in Ubuntu 18.04 container" >> build-test.log
+
+              ls -lh test-file-* build-test.log
+              echo ""
+              echo "✓ Test files created in container"
+            '
+
+          echo ""
+          echo "Back to host machine"
+          ls -lh test-file-* build-test.log
+          echo "✓ Files available on host"
+
+      - name: Upload test artifacts from host
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-ubuntu18-${{ github.run_number }}
+          path: |
+            test-file-*.txt
+            test-file-*.bin
+            build-test.log
+
+      - name: Upload logs separately from host
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-ubuntu18-${{ github.run_number }}
+          path: "*.log"
+
+      - name: Test result
+        if: success()
+        run: |
+          echo "=========================================="
+          echo "✓ Test PASSED"
+          echo "=========================================="
+          echo "Successfully built in Ubuntu 18.04 container and uploaded from host!"
+
+      - name: Cleanup test files
+        if: always()
+        run: |
+          rm -f test-file-*.txt test-file-*.bin build-test.log
+          echo "✓ Test files cleaned up"
+
+  test-upload-native:
+    name: Test Upload in Native Environment
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Create test files
+        run: |
+          echo "Creating test files..."
+          echo "Native test file" > native-test.txt
+          echo "Test log from native environment" > native-test.log
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-test-${{ github.run_number }}
+          path: |
+            native-*.txt
+            native-*.log
+
+      - name: Test result
+        if: success()
+        run: |
+          echo "✓ Native environment test PASSED"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f native-*.txt native-*.log

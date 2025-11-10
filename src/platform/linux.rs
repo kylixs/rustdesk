@@ -1435,8 +1435,8 @@ impl WakeLock {
 fn has_cmd(cmd: &str) -> bool {
     std::process::Command::new("which")
         .arg(cmd)
-        .status()
-        .map(|x| x.success())
+        .output()
+        .map(|x| x.status.success())
         .unwrap_or_default()
 }
 
@@ -1497,6 +1497,7 @@ pub fn install_service() -> bool {
         return false;
     }
     log::info!("Installing service...");
+
     let cp = switch_service(false);
     let app_name = crate::get_app_name().to_lowercase();
     if !run_cmds_privileged(&format!(
@@ -1505,6 +1506,60 @@ pub fn install_service() -> bool {
         Config::set_option("stop-service".into(), "Y".into());
     }
     true
+}
+
+/// Stop the RustDesk service without uninstalling it
+pub fn stop_service() -> bool {
+    if !has_cmd("systemctl") {
+        log::error!("systemctl not available");
+        return false;
+    }
+    log::info!("Stopping service...");
+    let app_name = crate::get_app_name().to_lowercase();
+    if !run_cmds_privileged(&format!("systemctl stop {app_name}")) {
+        log::error!("Failed to stop service");
+        return false;
+    }
+    Config::set_option("stop-service".into(), "Y".into());
+    log::info!("Service stopped successfully");
+    true
+}
+
+/// Start the RustDesk service
+pub fn start_service() -> bool {
+    if !has_cmd("systemctl") {
+        log::error!("systemctl not available");
+        return false;
+    }
+    log::info!("Starting service...");
+    let app_name = crate::get_app_name().to_lowercase();
+    if !run_cmds_privileged(&format!("systemctl start {app_name}")) {
+        log::error!("Failed to start service");
+        return false;
+    }
+    Config::set_option("stop-service".into(), "".into());
+    log::info!("Service started successfully");
+    true
+}
+
+pub fn get_service_status() -> String {
+    if !has_cmd("systemctl") {
+        return "systemctl not available".to_string();
+    }
+    let app_name = crate::get_app_name().to_lowercase();
+    match run_cmds(&format!("systemctl is-active {app_name}")) {
+        Ok(status) => {
+            let status = status.trim();
+            if status == "active" {
+                "Running".to_string()
+            } else if status == "inactive" {
+                "Stopped".to_string()
+            } else {
+                status.to_string()
+            }
+        }
+        Err(_) => "Not installed".to_string(),
+    }
 }
 
 fn check_if_stop_service() {

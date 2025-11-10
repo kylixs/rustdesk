@@ -1,0 +1,17 @@
+[package]
+name = "win_console"
+version = "0.1.0"
+edition = "2021"
+authors = ["RustDesk Contributors"]
+description = "Cross-terminal console output library for Windows GUI applications"
+license = "GPL-3.0"
+
+[dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = [
+    "wincon", "winbase", "processenv", "handleapi", "winuser",
+    "consoleapi", "psapi", "processthreadsapi", "wincontypes",
+    "fileapi", "libloaderapi"
+] }

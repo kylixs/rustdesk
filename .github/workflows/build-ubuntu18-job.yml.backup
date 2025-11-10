@@ -1,0 +1,136 @@
+# Backup of original build-rustdesk-ubuntu18 job from flutter-build.yml
+# Date: 2025-11-02
+# This job used container-based approach which had issues with artifact upload
+
+jobs:
+  build-rustdesk-ubuntu18:
+    name: build rustdesk ubuntu18 ${{ matrix.job.arch }}
+    runs-on: ubuntu-latest
+    needs: [generate-bridge]
+    container:
+      image: ubuntu:18.04
+      options: --privileged
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - {
+              arch: x86_64,
+              target: x86_64-unknown-linux-gnu,
+              deb_arch: amd64,
+              vcpkg-triplet: x64-linux,
+            }
+
+    steps:
+      - name: Checkout source code
+        run: |
+          apt-get update
+          apt-get install -y git
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+          git clone https://github.com/${{ github.repository }} .
+          git checkout ${{ github.sha }}
+          git submodule update --init --recursive
+
+      - name: Cache vcpkg dependencies
+        if: false
+        uses: actions/cache@v3
+        with:
+          path: |
+            vcpkg/installed
+            vcpkg/packages
+            vcpkg/buildtrees
+          key: vcpkg-ubuntu18-${{ matrix.job.arch }}-${{ hashFiles('vcpkg.json', 'vcpkg/triplets/x64-linux.cmake', 'res/vcpkg/**') }}
+          restore-keys: |
+            vcpkg-ubuntu18-${{ matrix.job.arch }}-
+
+      - name: Install base dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            sudo curl zip unzip tar git tree wget ca-certificates \
+            build-essential clang  cmake  gcc g++ \
+            libclang-10-dev libglib2.0-dev libgtk-3-dev libpam0g-dev \
+            libpulse-dev libva-dev libvdpau-dev libxcb-randr0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxdo-dev libxfixes-dev \
+            llvm-10-dev nasm ninja-build pkg-config \
+            python3 python3-pip \
+            software-properties-common bc
+
+          # install gstreamer1.0-pipewire
+          bash scripts/install-gstreamer1.0-pipewire.sh
+
+      - name: Upgrade Python to 3.8
+        run: |
+          add-apt-repository -y ppa:deadsnakes/ppa
+          apt-get update
+          apt-get install -y python3.8 python3.8-dev python3.8-distutils
+          update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
+          update-alternatives --set python3 /usr/bin/python3.8
+          python3 --version
+
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain ${{ env.RUST_VERSION }} -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          . "$HOME/.cargo/env"
+          rustup target add ${{ matrix.job.target }}
+
+      - name: Disable rust bridge build
+        run: |
+          # only build cdylib
+          sed -i  "s/\[\"cdylib\", \"staticlib\", \"rlib\"\]/\[\"cdylib\"\]/g" Cargo.toml
+
+      - name: Install Flutter
+        run: |
+          cd /opt
+          wget -q https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
+          tar -xf flutter_linux_${{ env.FLUTTER_VERSION }}-stable.tar.xz
+          echo "/opt/flutter/bin" >> $GITHUB_PATH
+
+      - name: Setup vcpkg
+        run: |
+          export VCPKG_ROOT="$GITHUB_WORKSPACE/vcpkg"
+          echo "=========================================="
+          echo "Setting up vcpkg dependencies for Ubuntu 18.04"
+          echo "=========================================="
+          bash scripts/setup-vcpkg-for-ubuntu18.sh
+
+
+      - name: Install vcpkg dependencies
+        run: |
+          . "$HOME/.cargo/env"
+          export VCPKG_ROOT="$GITHUB_WORKSPACE/vcpkg"
+
+          echo "=========================================="
+          echo "Installing vcpkg dependencies for Ubuntu 18.04"
+          echo "=========================================="
+          bash scripts/install-vcpkg-for-ubuntu18.sh
+
+      - name: Build RustDesk
+        run: |
+          . "$HOME/.cargo/env"
+          export PATH="/opt/flutter/bin:$PATH"
+          export VCPKG_ROOT="$GITHUB_WORKSPACE/vcpkg"
+
+          echo "=========================================="
+          echo "Running Ubuntu 18.04 Build Script"
+          echo "=========================================="
+          bash ./build-for-ubuntu18.sh
+
+          ls -lh rustdesk*-ubuntu18.deb || true
+
+      - name: Upload Ubuntu 18 Debian package
+        if: false
+        uses: minecraft-linux/actions-upload-artifact-node-16@7efe82fe5311d8051a67e63871dbbab457c345f9
+        with:
+          name: rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-ubuntu18.deb
+          path: rustdesk-*-ubuntu18.deb
+
+      - name: Publish package
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          prerelease: true
+          tag_name: ${{ env.TAG_NAME }}
+          files: |
+            rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}-ubuntu18.deb

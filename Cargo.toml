@@ -1,12 +1,16 @@
 [package]
 name = "rustdesk"
-version = "1.4.3"
+version = "1.4.3-jlc20"
 authors = ["rustdesk <info@rustdesk.com>"]
 edition = "2021"
 build= "build.rs"
 description = "RustDesk Remote Desktop"
 default-run = "rustdesk"
 rust-version = "1.75"
+
+[workspace.package]
+# set workspace version for modules
+version = "1.4.3-jlc20"
 
 [lib]
 name = "librustdesk"
@@ -48,6 +52,7 @@ screencapturekit = ["cpal/screencapturekit"]
 async-trait = "0.1"
 scrap = { path = "libs/scrap", features = ["wayland"] }
 hbb_common = { path = "libs/hbb_common" }
+win_console = { path = "libs/win_console" }
 serde_derive = "1.0"
 serde = "1.0"
 serde_json = "1.0"
@@ -82,6 +87,7 @@ zip = "0.6"
 shutdown_hooks = "0.1"
 totp-rs = { version = "5.4", default-features = false, features = ["gen_secret", "otpauth"] }
 stunclient = "0.4"
+md5 = "0.7"
 kcp-sys= { git = "https://github.com/rustdesk-org/kcp-sys"}
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 # https://github.com/rustdesk/rustdesk/discussions/10197, not use cpal on linux
@@ -118,6 +124,7 @@ winapi = { version = "0.3", features = [
     "cfgmgr32",
     "ioapiset",
     "winspool",
+    "winsvc",
 ] }
 windows = { version = "0.61", features = [
     "Win32",
@@ -134,6 +141,8 @@ impersonate_system = { git = "https://github.com/rustdesk-org/impersonate-system
 shared_memory = "0.12"
 tauri-winrt-notification = "0.1"
 runas = "1.2"
+dirs = "5.0"
+rustdesk-portable-packer = { path = "libs/portable" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
@@ -215,6 +224,7 @@ winapi = { version = "0.3", features = [ "winnt", "pdh", "synchapi" ] }
 cc = "1.0"
 hbb_common = { path = "libs/hbb_common" }
 os-version = "0.2"
+chrono = "0.4"
 
 [dev-dependencies]
 hound = "3.5"

@@ -304,6 +304,10 @@ class FfiModel with ChangeNotifier {
       var name = evt['name'];
       if (name == 'msgbox') {
         handleMsgBox(evt, sessionId, peerId);
+      } else if (name == 'close_desktop') {
+        // Close desktop window on network error
+        // This is triggered by backend when connection is closed (timeout, network error, etc.)
+        closeConnection(id: peerId);
       } else if (name == 'toast') {
         handleToast(evt, sessionId, peerId);
       } else if (name == 'set_multiple_windows_session') {

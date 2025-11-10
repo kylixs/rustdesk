@@ -6,7 +6,7 @@ use crate::platform::breakdown_callback;
 #[cfg(not(debug_assertions))]
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use hbb_common::platform::register_breakdown_handler;
-use hbb_common::{config, log};
+use hbb_common::{config, config::Config, log};
 #[cfg(windows)]
 use tauri_winrt_notification::{Duration, Sound, Toast};
 
@@ -35,6 +35,30 @@ pub fn core_main() -> Option<Vec<String>> {
         // return None to terminate the process
         return None;
     }
+
+    // Set panic hook to capture unhandled panics for all execution paths
+    std::panic::set_hook(Box::new(|panic_info| {
+        let args: Vec<String> = std::env::args().collect();
+        let context = if args.len() > 1 {
+            format!("[RUSTDESK {}]", args[1])
+        } else {
+            "[RUSTDESK]".to_string()
+        };
+
+        let msg = format!("{} PANIC: {}", context, panic_info);
+        log::error!("{}", msg);
+        #[cfg(target_os = "windows")]
+        crate::platform::debug_output(&msg);
+
+        if let Some(location) = panic_info.location() {
+            let loc_msg = format!("{} Panic location: {}:{}:{}",
+                context, location.file(), location.line(), location.column());
+            log::error!("{}", loc_msg);
+            #[cfg(target_os = "windows")]
+            crate::platform::debug_output(&loc_msg);
+        }
+    }));
+
     let mut args = Vec::new();
     let mut flutter_args = Vec::new();
     let mut i = 0;
@@ -76,22 +100,47 @@ pub fn core_main() -> Option<Vec<String>> {
         }
         i += 1;
     }
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    if args.is_empty() {
-        #[cfg(target_os = "linux")]
-        let should_check_start_tray = crate::check_process("--server", false);
-        // We can use `crate::check_process("--server", false)` on Windows.
-        // Because `--server` process is the System user's process. We can't get the arguments in `check_process()`.
-        // We can assume that self service running means the server is also running on Windows.
-        #[cfg(target_os = "windows")]
-        let should_check_start_tray = crate::platform::is_self_service_running()
-            && crate::platform::is_cur_exe_the_installed();
-        if should_check_start_tray && !crate::check_process("--tray", true) {
-            #[cfg(target_os = "linux")]
-            hbb_common::allow_err!(crate::platform::check_autostart_config());
-            hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-        }
+
+    // Initialize console attachment for CLI commands (Windows only)
+    // This allows GUI application to attach to parent console when launched from terminal
+    // Safe to call even when not launched from console - will do nothing if no parent console
+    #[cfg(windows)]
+    {
+        win_console::init();
     }
+    
+    // Handle help requests before flutter invoke new connection
+    if proc_help(&args) {
+        return None;
+    }
+
+    // Handle default behavior: show help when no args
+    // Special cases that allow empty args:
+    // - Windows setup.exe (click_setup)
+    let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
+    if args.is_empty() && !click_setup {
+        crate::cli_help::print_help();
+        return None;
+    }
+
+    // Disabled: Don't auto-start tray when launching without arguments (e.g., double-clicking or RDP connection)
+    // Users should explicitly use --tray parameter or Startup shortcut to launch tray
+    // #[cfg(any(target_os = "linux", target_os = "windows"))]
+    // if args.is_empty() {
+    //     #[cfg(target_os = "linux")]
+    //     let should_check_start_tray = crate::check_process("--server", false);
+    //     // We can use `crate::check_process("--server", false)` on Windows.
+    //     // Because `--server` process is the System user's process. We can't get the arguments in `check_process()`.
+    //     // We can assume that self service running means the server is also running on Windows.
+    //     #[cfg(target_os = "windows")]
+    //     let should_check_start_tray = crate::platform::is_self_service_running()
+    //         && crate::platform::is_cur_exe_the_installed();
+    //     if should_check_start_tray && !crate::check_process("--tray", true) {
+    //         #[cfg(target_os = "linux")]
+    //         hbb_common::allow_err!(crate::platform::check_autostart_config());
+    //         hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+    //     }
+    // }
     #[cfg(not(debug_assertions))]
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     register_breakdown_handler(breakdown_callback);
@@ -116,7 +165,6 @@ pub fn core_main() -> Option<Vec<String>> {
     if _is_flutter_invoke_new_connection {
         return core_main_invoke_new_connection(std::env::args());
     }
-    let click_setup = cfg!(windows) && args.is_empty() && crate::common::is_setup(&arg_exe);
     if click_setup && !config::is_disable_installation() {
         args.push("--install".to_owned());
         flutter_args.push("--install".to_string());
@@ -124,6 +172,7 @@ pub fn core_main() -> Option<Vec<String>> {
     if args.contains(&"--noinstall".to_string()) {
         args.clear();
     }
+
     if args.len() > 0 {
         if args[0] == "--version" {
             println!("{}", crate::VERSION);
@@ -133,6 +182,7 @@ pub fn core_main() -> Option<Vec<String>> {
             return None;
         }
     }
+
     #[cfg(windows)]
     {
         _is_quick_support |= !crate::platform::is_installed()
@@ -313,8 +363,10 @@ pub fn core_main() -> Option<Vec<String>> {
                 // sleep a while so that process of removed exe exit
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 std::fs::remove_file(&args[1]).ok();
-                return None;
+            } else {
+                println!("Usage: rustdesk --remove <file_path>");
             }
+            return None;
         } else if args[0] == "--tray" {
             if !crate::check_process("--tray", true) {
                 crate::tray::start_tray();
@@ -322,11 +374,29 @@ pub fn core_main() -> Option<Vec<String>> {
             return None;
         } else if args[0] == "--install-service" {
             log::info!("start --install-service");
+            // Set unattended access mode configuration during service installation
+            Config::set_unattended_mode_options();
             crate::platform::install_service();
             return None;
         } else if args[0] == "--uninstall-service" {
             log::info!("start --uninstall-service");
             crate::platform::uninstall_service(false, true);
+            return None;
+        } else if args[0] == "--start-service" {
+            log::info!("start --start-service");
+            if crate::platform::start_service() {
+                println!("Service started successfully");
+            } else {
+                println!("Failed to start service");
+            }
+            return None;
+        } else if args[0] == "--stop-service" {
+            log::info!("start --stop-service");
+            if crate::platform::stop_service() {
+                println!("Service stopped successfully");
+            } else {
+                println!("Failed to stop service");
+            }
             return None;
         } else if args[0] == "--service" {
             log::info!("start --service");
@@ -442,7 +512,8 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--option" {
-            if crate::platform::is_installed() && is_root() {
+            // Only check admin privileges, not installation status
+            if is_root() {
                 if args.len() == 2 {
                     let options = crate::ipc::get_options();
                     println!("{}", options.get(&args[1]).unwrap_or(&"".to_owned()));
@@ -450,7 +521,46 @@ pub fn core_main() -> Option<Vec<String>> {
                     crate::ipc::set_option(&args[1], &args[2]);
                 }
             } else {
-                println!("Installation and administrative privileges required!");
+                println!("Administrative privileges required!");
+            }
+            return None;
+        } else if args[0] == "--list-options" {
+            let options = crate::ipc::get_options();
+            let mut keys: Vec<&String> = options.keys().collect();
+            keys.sort();
+
+            println!("RustDesk Configuration Options:");
+            println!("{}", "=".repeat(60));
+
+            if keys.is_empty() {
+                println!("No options configured (using defaults)");
+            } else {
+                for key in keys {
+                    let value = options.get(key).unwrap();
+                    if value.is_empty() {
+                        println!("{:30} = (empty)", key);
+                    } else {
+                        println!("{:30} = {}", key, value);
+                    }
+                }
+            }
+
+            println!("{}", "=".repeat(60));
+            println!("Total: {} options", options.len());
+            return None;
+        } else if args[0] == "--status" {
+            // Check if --json flag is present
+            let json_output = args.contains(&"--json".to_string());
+
+            // Use comprehensive status check
+            match crate::status_check::check_status(json_output) {
+                Ok(_) => {},
+                Err(e) => {
+                    if !json_output {
+                        log::error!("Status check failed: {}", e);
+                    }
+                    std::process::exit(1);
+                }
             }
             return None;
         } else if args[0] == "--assign" {
@@ -587,6 +697,9 @@ pub fn core_main() -> Option<Vec<String>> {
                 crate::platform::gtk_sudo::exec();
             }
             return None;
+        } else if args[0] == "--gui" {
+            // Explicitly start GUI main interface
+            // No return None - will fallthrough to return Some(...)
         } else {
             #[cfg(all(feature = "flutter", feature = "plugin_framework"))]
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -603,6 +716,11 @@ pub fn core_main() -> Option<Vec<String>> {
                 }
                 return None;
             }
+
+            // Unknown argument - show help
+            println!("Unknown command: {}\n", args[0]);
+            crate::cli_help::print_help();
+            return None;
         }
     }
     //_async_logger_holder.map(|x| x.flush());
@@ -610,6 +728,49 @@ pub fn core_main() -> Option<Vec<String>> {
     return Some(flutter_args);
     #[cfg(not(feature = "flutter"))]
     return Some(args);
+}
+
+
+/// Process help request - handles all help formats
+/// Returns true if help was handled and should exit
+///
+/// Supported formats:
+/// - rustdesk --help / -h
+/// - rustdesk help [command]
+/// - rustdesk --help <command>
+/// - rustdesk <command> --help / -h
+fn proc_help(args: &Vec<String>) -> bool {
+    if args.is_empty() {
+        return false;
+    }
+
+    // Format 1: --help or -h (first argument)
+    if args[0] == "--help" || args[0] == "-h" {
+        if args.len() > 1 {
+            crate::cli_help::print_specific_help(&args[1]);
+        } else {
+            crate::cli_help::print_help();
+        }
+        return true;
+    }
+
+    // Format 2: help [command]
+    if args[0] == "help" {
+        if args.len() > 1 {
+            crate::cli_help::print_specific_help(&args[1]);
+        } else {
+            crate::cli_help::print_help();
+        }
+        return true;
+    }
+
+    // Format 3: <command> --help or <command> -h
+    if args.len() >= 2 && (args[1] == "--help" || args[1] == "-h") {
+        crate::cli_help::print_specific_help(&args[0]);
+        return true;
+    }
+
+    false
 }
 
 #[inline]

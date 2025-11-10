@@ -20,6 +20,7 @@ use core_graphics::{
 use hbb_common::{
     anyhow::anyhow,
     bail, log,
+    config::Config,
     message_proto::{DisplayInfo, Resolution},
     sysinfo::{Pid, Process, ProcessRefreshKind, System},
 };
@@ -302,6 +303,92 @@ fn correct_app_name(s: &str) -> String {
     s = s.replace("rustdesk", &crate::get_app_name().to_lowercase());
     s = s.replace("RustDesk", &crate::get_app_name());
     s
+}
+
+/// Stop the RustDesk service without uninstalling it
+pub fn stop_service() -> bool {
+    if !is_installed_daemon(false) {
+        log::error!("Service is not installed");
+        return false;
+    }
+    log::info!("Stopping service...");
+    let agent = format!("{}_server.plist", crate::get_full_name());
+    let agent_plist_file = format!("/Library/LaunchAgents/{}", agent);
+
+    match std::process::Command::new("launchctl")
+        .args(&["unload", "-w", &agent_plist_file])
+        .status()
+    {
+        Ok(status) if status.success() => {
+            Config::set_option("stop-service".into(), "Y".into());
+            log::info!("Service stopped successfully");
+            true
+        }
+        Ok(status) => {
+            log::error!("Failed to stop service, exit code: {:?}", status.code());
+            false
+        }
+        Err(e) => {
+            log::error!("Failed to stop service: {}", e);
+            false
+        }
+    }
+}
+
+/// Start the RustDesk service
+pub fn start_service() -> bool {
+    if !is_installed_daemon(false) {
+        log::error!("Service is not installed");
+        return false;
+    }
+    log::info!("Starting service...");
+    let agent = format!("{}_server.plist", crate::get_full_name());
+    let agent_plist_file = format!("/Library/LaunchAgents/{}", agent);
+
+    match std::process::Command::new("launchctl")
+        .args(&["load", "-w", &agent_plist_file])
+        .status()
+    {
+        Ok(status) if status.success() => {
+            Config::set_option("stop-service".into(), "".into());
+            log::info!("Service started successfully");
+            true
+        }
+        Ok(status) => {
+            log::error!("Failed to start service, exit code: {:?}", status.code());
+            false
+        }
+        Err(e) => {
+            log::error!("Failed to start service: {}", e);
+            false
+        }
+    }
+}
+
+pub fn get_service_status() -> String {
+    let agent = format!("{}_server.plist", crate::get_full_name());
+    let agent_plist_file = format!("/Library/LaunchAgents/{}", agent);
+
+    // Check if service is installed
+    if !std::path::Path::new(&agent_plist_file).exists() {
+        return "Not installed".to_string();
+    }
+
+    // Check if service is running by checking launchctl list
+    let output = std::process::Command::new("launchctl")
+        .args(&["list", &format!("{}_server", crate::get_full_name())])
+        .output();
+
+    match output {
+        Ok(output) => {
+            if output.status.success() {
+                "Running".to_string()
+            } else {
+                "Stopped".to_string()
+            }
+        }
+        Err(_) => "Stopped".to_string(),
+    }
 }
 
 pub fn uninstall_service(show_new_window: bool, sync: bool) -> bool {

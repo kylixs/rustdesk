@@ -92,6 +92,20 @@ impl RendezvousMediator {
             crate::platform::linux_desktop_manager::start_xdesktop();
         }
         scrap::codec::test_av1();
+
+        // Check if direct IP mode is enabled
+        let direct_server_enabled = config::option2bool(
+            OPTION_DIRECT_SERVER,
+            &Config::get_option(OPTION_DIRECT_SERVER),
+        );
+        if direct_server_enabled {
+            log::info!("Direct IP access mode enabled, rendezvous mediator disabled");
+            // In direct IP mode, just wait indefinitely
+            loop {
+                sleep(60.).await;
+            }
+        }
+
         loop {
             let timeout = Arc::new(RwLock::new(CONNECT_TIMEOUT));
             let conn_start_time = Instant::now();

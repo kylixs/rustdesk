@@ -42,28 +42,64 @@ impl BinaryData {
         buf
     }
 
-    pub fn write_to_file(&self, prefix: &Path) {
+    pub fn write_to_file(&self, prefix: &Path) -> std::io::Result<()> {
         let p = prefix.join(&self.path);
         if let Some(parent) = p.parent() {
             if !parent.exists() {
-                let _ = fs::create_dir_all(parent);
+                fs::create_dir_all(parent)?;
             }
         }
         if p.exists() {
             // check md5
-            let f = fs::read(p.clone()).unwrap_or_default();
+            let f = fs::read(&p).unwrap_or_default();
             let digest = format!("{:x}", md5::compute(&f));
             let md5_record = String::from_utf8_lossy(self.md5_code);
             if digest == md5_record {
                 // same, skip this file
-                println!("skip {}", &self.path);
-                return;
+                log::trace!("skip {}", &self.path);
+                return Ok(());
             } else {
-                println!("writing {}", p.display());
-                println!("{} -> {}", md5_record, digest)
+                log::info!("writing {} (md5 mismatch: {} -> {})",
+                    p.display(), md5_record, digest);
+            }
+        } else {
+            log::info!("writing {} (new file)", p.display());
+        }
+
+        fs::write(&p, self.decompress())?;
+        Ok(())
+    }
+
+    /// Write to file and preserve original modified time
+    pub fn write_to_file_with_mtime(&self, prefix: &Path, mtime_secs: u64) -> std::io::Result<()> {
+        self.write_to_file(prefix)?;
+
+        let p = prefix.join(&self.path);
+
+        // Set file modification time to match original
+        #[cfg(windows)]
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            use std::os::windows::fs::MetadataExt;
+
+            let mtime = UNIX_EPOCH + std::time::Duration::from_secs(mtime_secs);
+            if let Err(e) = filetime::set_file_mtime(&p, filetime::FileTime::from_system_time(mtime)) {
+                log::warn!("Failed to set mtime for {}: {}", self.path, e);
+            } else {
+                log::debug!("Set mtime for {} to {}", self.path, mtime_secs);
             }
         }
-        let _ = fs::write(p, self.decompress());
+
+        #[cfg(not(windows))]
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let mtime = UNIX_EPOCH + std::time::Duration::from_secs(mtime_secs);
+            if let Err(e) = filetime::set_file_mtime(&p, filetime::FileTime::from_system_time(mtime)) {
+                log::warn!("Failed to set mtime for {}: {}", self.path, e);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -134,6 +170,72 @@ impl BinaryReader {
                     f.set_permissions(permissions).ok();
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_binary_reader_default() {
+        // Test that BinaryReader can be created from embedded data
+        let reader = BinaryReader::default();
+
+        // Should have files
+        assert!(!reader.files.is_empty(), "BinaryReader should contain files");
+
+        // Should have exe name
+        assert!(!reader.exe.is_empty(), "BinaryReader should have exe name");
+    }
+
+    #[test]
+    fn test_binary_data_fields() {
+        let reader = BinaryReader::default();
+
+        // Check first file has required fields
+        if let Some(first_file) = reader.files.first() {
+            assert!(!first_file.path.is_empty(), "File path should not be empty");
+            assert_eq!(first_file.md5_code.len(), MD5_LENGTH, "MD5 code should be 32 bytes");
+            assert!(!first_file.raw.is_empty(), "Compressed data should not be empty");
+        }
+    }
+
+    #[test]
+    fn test_binary_data_decompress() {
+        let reader = BinaryReader::default();
+
+        // Test decompression of first file
+        if let Some(first_file) = reader.files.first() {
+            let decompressed = first_file.decompress();
+            assert!(!decompressed.is_empty(), "Decompressed data should not be empty");
+        }
+    }
+
+    #[test]
+    fn test_all_files_have_valid_md5() {
+        let reader = BinaryReader::default();
+
+        for file in &reader.files {
+            // MD5 should be 32 hex characters
+            assert_eq!(file.md5_code.len(), MD5_LENGTH);
+
+            // Should be valid hex
+            let md5_str = String::from_utf8_lossy(file.md5_code);
+            assert!(md5_str.chars().all(|c| c.is_ascii_hexdigit()),
+                "MD5 should be hex: {} for file {}", md5_str, file.path);
+        }
+    }
+
+    #[test]
+    fn test_file_paths_format() {
+        let reader = BinaryReader::default();
+
+        for file in &reader.files {
+            // Paths should start with .\ or ./
+            assert!(file.path.starts_with(".\\") || file.path.starts_with("./"),
+                "Path should start with .\\ or ./: {}", file.path);
         }
     }
 }

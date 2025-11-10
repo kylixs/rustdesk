@@ -1166,7 +1166,7 @@ impl Connection {
     }
 
     async fn on_open(&mut self, addr: SocketAddr) -> bool {
-        log::debug!("#{} Connection opened from {}.", self.inner.id, addr);
+        log::info!("#{} Connection opened from {}.", self.inner.id, addr);
         if !self.check_whitelist(&addr).await {
             return false;
         }
@@ -1968,7 +1968,10 @@ impl Connection {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     fn try_start_cm_ipc(&mut self) {
         if let Some(p) = self.start_cm_ipc_para.take() {
+            let client_addr = self.ip.clone();
+            let conn_id = self.inner.id;
             tokio::spawn(async move {
+                log::info!("[CM] Starting IPC for connection #{} from client: {}", conn_id, client_addr);
                 #[cfg(windows)]
                 let tx_from_cm_clone = p.tx_from_cm.clone();
                 if let Err(err) = start_ipc(
@@ -1979,7 +1982,7 @@ impl Connection {
                 )
                 .await
                 {
-                    log::warn!("ipc to connection manager exit: {}", err);
+                    log::warn!("[CM] IPC to connection manager exit for connection #{} from {}: {}", conn_id, client_addr, err);
                     // https://github.com/rustdesk/rustdesk-server-pro/discussions/382#discussioncomment-10525725, cm may start failed
                     #[cfg(windows)]
                     if !crate::platform::is_prelogin()
@@ -1990,12 +1993,14 @@ impl Connection {
                     }
                 }
             });
-            #[cfg(all(windows, feature = "flutter"))]
-            std::thread::spawn(move || {
-                if crate::is_server() && !crate::check_process("--tray", false) {
-                    crate::platform::run_as_user(vec!["--tray"]).ok();
-                }
-            });
+            // Disabled: Do not auto-start tray when connection is established
+            // Tray should only be started manually via --tray parameter or Startup shortcut
+            // #[cfg(all(windows, feature = "flutter"))]
+            // std::thread::spawn(move || {
+            //     if crate::is_server() && !crate::check_process("--tray", false) {
+            //         crate::platform::run_as_user(vec!["--tray"]).ok();
+            //     }
+            // });
         }
     }
 
@@ -4333,53 +4338,77 @@ async fn start_ipc(
         if !crate::platform::is_prelogin() {
             break;
         }
+        log::debug!("[CM] Waiting for prelogin to finish...");
         sleep(1.).await;
     }
+    log::debug!("[CM] Attempting to connect to existing connection manager...");
     let mut stream = None;
     if let Ok(s) = crate::ipc::connect(1000, "_cm").await {
         stream = Some(s);
+        log::info!("[CM] Connected to existing connection manager");
     } else {
+        log::info!("[CM] No existing connection manager found, will start new one");
         #[allow(unused_mut)]
         #[allow(unused_assignments)]
-        let mut args = vec!["--cm"];
+        let mut args = vec!["--cm-no-ui"];  // Default to no-ui mode
         #[allow(unused_mut)]
         #[cfg(target_os = "linux")]
         let mut user = None;
 
-        // Cm run as user, wait until desktop session is ready.
+        // Determine whether to use --cm-no-ui or --cm
+        // Priority: 1. Linux headless  2. hide cm
         #[cfg(target_os = "linux")]
-        if crate::platform::is_headless_allowed() && linux_desktop_manager::is_headless() {
-            let mut username = linux_desktop_manager::get_username();
-            loop {
-                if !username.is_empty() {
-                    break;
-                }
-                let _res = timeout(1_000, _rx_desktop_ready.recv()).await;
-                username = linux_desktop_manager::get_username();
-            }
-            let uid = {
-                let output = run_cmds(&format!("id -u {}", &username))?;
-                let output = output.trim();
-                if output.is_empty() || !output.parse::<i32>().is_ok() {
-                    bail!("Invalid username {}", &username);
-                }
-                output.to_string()
-            };
-            user = Some((uid, username));
+        let is_headless = crate::platform::is_headless_allowed() && linux_desktop_manager::is_headless();
+        #[cfg(not(target_os = "linux"))]
+        let is_headless = false;
+
+        let use_no_ui = is_headless || hbb_common::password_security::hide_cm();
+        if use_no_ui {
             args = vec!["--cm-no-ui"];
+            log::info!("[CM] Starting connection manager with args: {:?}", args);
+
+            // Cm run as user, wait until desktop session is ready (Linux headless only).
+            #[cfg(target_os = "linux")]
+            if crate::platform::is_headless_allowed() && linux_desktop_manager::is_headless() {
+                log::info!("[CM] Linux headless mode detected, waiting for desktop session");
+                let mut username = linux_desktop_manager::get_username();
+                loop {
+                    if !username.is_empty() {
+                        break;
+                    }
+                    log::debug!("[CM] Waiting for username from desktop manager...");
+                    let _res = timeout(1_000, _rx_desktop_ready.recv()).await;
+                    username = linux_desktop_manager::get_username();
+                }
+                log::info!("[CM] Desktop session ready, username: {}", username);
+                let uid = {
+                    let output = run_cmds(&format!("id -u {}", &username))?;
+                    let output = output.trim();
+                    if output.is_empty() || !output.parse::<i32>().is_ok() {
+                        log::error!("[CM] Failed to get valid uid for user {}: output='{}'", &username, output);
+                        bail!("Invalid username {}", &username);
+                    }
+                    output.to_string()
+                };
+                log::info!("[CM] Got uid {} for user {}", uid, username);
+                user = Some((uid, username));
+            }
+        } else {
+            log::info!("[CM] Starting connection manager with args: {:?}", args);
         }
         let run_done;
+        let mut cm_process: Option<std::process::Child> = None;
         if crate::platform::is_root() {
             let mut res = Ok(None);
             for _ in 0..10 {
                 #[cfg(not(any(target_os = "linux")))]
                 {
-                    log::debug!("Start cm");
+                    log::info!("[CM] Starting cm subprocess with args: {:?}", args);
                     res = crate::platform::run_as_user(args.clone());
                 }
                 #[cfg(target_os = "linux")]
                 {
-                    log::debug!("Start cm");
+                    log::info!("[CM] Starting cm subprocess with args: {:?}", args);
                     res = crate::platform::run_as_user(
                         args.clone(),
                         user.clone(),
@@ -4389,42 +4418,77 @@ async fn start_ipc(
                 if res.is_ok() {
                     break;
                 }
-                log::error!("Failed to run cm: {res:?}");
+                log::error!("[CM] Failed to start cm subprocess with args {:?}: {res:?}", args);
                 sleep(1.).await;
             }
-            if let Some(task) = res? {
-                super::CHILD_PROCESS.lock().unwrap().push(task);
+            match res {
+                Ok(task_opt) => {
+                    if let Some(task) = task_opt {
+                        log::info!("[CM] CM subprocess started successfully (as root)");
+                        cm_process = Some(task);
+                    } else {
+                        log::info!("[CM] CM subprocess start returned no task (already running or managed externally)");
+                    }
+                }
+                Err(e) => {
+                    log::error!("[CM] Failed to start cm subprocess after 10 retries: {:?}", e);
+                    return Err(e);
+                }
             }
             run_done = true;
         } else {
             run_done = false;
         }
         if !run_done {
-            log::debug!("Start cm");
-            super::CHILD_PROCESS
-                .lock()
-                .unwrap()
-                .push(crate::run_me(args)?);
+            log::info!("[CM] Starting cm subprocess with args: {:?}", args);
+            match crate::run_me(args.clone()) {
+                Ok(task) => {
+                    log::info!("[CM] CM subprocess started successfully (non-root)");
+                    cm_process = Some(task);
+                }
+                Err(e) => {
+                    log::error!("[CM] Failed to start cm subprocess with args {:?}: {:?}", args, e);
+                    return Err(e.into());
+                }
+            }
         }
-        for _ in 0..20 {
+        log::debug!("[CM] Waiting for connection manager to be ready (max 6 seconds)...");
+        for i in 0..20 {
             sleep(0.3).await;
             if let Ok(s) = crate::ipc::connect(1000, "_cm").await {
                 stream = Some(s);
+                log::info!("[CM] Successfully connected to connection manager after {} attempts", i + 1);
                 break;
             }
         }
         if stream.is_none() {
+            log::error!("[CM] Failed to connect to connection manager after 6 seconds (20 attempts). CM subprocess may have failed to start or crashed. Check if cm/cm-no-ui process is running.");
+            // Check CM process status for diagnosis
+            if let Some(mut process) = cm_process {
+                if let Ok(Some(status)) = process.try_wait() {
+                    log::error!("[CM] CM subprocess has exited. Exit status: {:?}", status.code());
+                }
+            }
             bail!("Failed to connect to connection manager");
         }
+        // Drop cm_process to release the child process handle
+        drop(cm_process);
     }
 
     let _res = tx_stream_ready.send(()).await;
-    let mut stream = stream.ok_or(anyhow!("none stream"))?;
+    let mut stream = match stream {
+        Some(s) => s,
+        None => {
+            log::error!("[CM] Internal error: stream is None after connection check (should not happen)");
+            return Err(anyhow!("Internal error: stream is None").into());
+        }
+    };
     loop {
         tokio::select! {
             res = stream.next() => {
                 match res {
                     Err(err) => {
+                        log::error!("[CM] IPC stream error from connection manager: {}", err);
                         return Err(err.into());
                     }
                     Ok(Some(data)) => {
@@ -4456,7 +4520,8 @@ async fn start_ipc(
                         }
                     }
                     None => {
-                        bail!("expected");
+                        log::error!("[CM] IPC channel from connection closed unexpectedly");
+                        bail!("IPC channel from connection closed");
                     }
                 }
             }

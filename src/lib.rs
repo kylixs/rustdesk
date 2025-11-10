@@ -1,3 +1,8 @@
+// Import win_console macros for Windows CLI output support
+#[cfg(windows)]
+#[macro_use]
+extern crate win_console;
+
 mod keyboard;
 /// cbindgen:ignore
 pub mod platform;
@@ -42,6 +47,10 @@ pub mod cli;
 #[cfg(not(target_os = "ios"))]
 mod clipboard;
 #[cfg(not(any(target_os = "android", target_os = "ios", feature = "cli")))]
+mod notification;
+#[cfg(not(any(target_os = "android", target_os = "ios", feature = "cli")))]
+mod cli_help;
+#[cfg(not(any(target_os = "android", target_os = "ios", feature = "cli")))]
 pub mod core_main;
 mod custom_server;
 mod lang;
@@ -66,6 +75,9 @@ mod ui_interface;
 mod ui_session_interface;
 
 mod hbbs_http;
+
+#[cfg(not(any(target_os = "android", target_os = "ios", feature = "cli")))]
+mod status_check;
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub mod clipboard_file;
