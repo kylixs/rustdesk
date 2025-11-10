@@ -2,6 +2,134 @@ use crate::bin_reader::BinaryReader;
 use crate::manifest::{FileManifest, FileMetadata, FileMismatch, VerifyResult};
 use std::path::Path;
 
+/// Manifest inconsistency type
+#[derive(Debug)]
+pub enum ManifestInconsistency {
+    /// File count mismatch
+    FileCountMismatch {
+        manifest_count: usize,
+        portable_count: usize,
+    },
+    /// File list mismatch
+    FileListMismatch {
+        missing_in_portable: Vec<String>,
+        missing_in_manifest: Vec<String>,
+    },
+    /// MD5 checksum mismatch (portable data updated)
+    MD5Mismatch {
+        mismatches: Vec<(String, String, String)>, // (path, manifest_md5, portable_md5)
+    },
+}
+
+impl ManifestInconsistency {
+    pub fn description(&self) -> String {
+        match self {
+            ManifestInconsistency::FileCountMismatch { manifest_count, portable_count } => {
+                format!("File count mismatch: manifest has {} files, portable has {} files",
+                    manifest_count, portable_count)
+            }
+            ManifestInconsistency::FileListMismatch { missing_in_portable, missing_in_manifest } => {
+                let mut msg = String::from("File list mismatch:\n");
+                if !missing_in_portable.is_empty() {
+                    msg.push_str(&format!("  - {} files in manifest but not in portable\n",
+                        missing_in_portable.len()));
+                }
+                if !missing_in_manifest.is_empty() {
+                    msg.push_str(&format!("  - {} files in portable but not in manifest\n",
+                        missing_in_manifest.len()));
+                }
+                msg
+            }
+            ManifestInconsistency::MD5Mismatch { mismatches } => {
+                format!("MD5 checksum mismatch for {} files (portable data updated)",
+                    mismatches.len())
+            }
+        }
+    }
+}
+
+/// Verify manifest consistency with portable data
+pub fn verify_manifest_consistency(
+    manifest: &FileManifest,
+    reader: &BinaryReader,
+) -> Result<(), ManifestInconsistency> {
+    let start = std::time::Instant::now();
+
+    // Check file count
+    if manifest.files.len() != reader.files.len() {
+        log::warn!("Manifest file count mismatch: manifest={}, portable={}",
+            manifest.files.len(), reader.files.len());
+        return Err(ManifestInconsistency::FileCountMismatch {
+            manifest_count: manifest.files.len(),
+            portable_count: reader.files.len(),
+        });
+    }
+
+    // Build fast lookup sets
+    let manifest_paths: std::collections::HashSet<&str> =
+        manifest.files.iter().map(|f| f.path.as_str()).collect();
+    let portable_paths: std::collections::HashSet<&str> =
+        reader.files.iter().map(|f| f.path.as_str()).collect();
+
+    // Check files in manifest but not in portable
+    let missing_in_portable: Vec<_> = manifest_paths
+        .difference(&portable_paths)
+        .map(|s| s.to_string())
+        .collect();
+
+    // Check files in portable but not in manifest
+    let missing_in_manifest: Vec<_> = portable_paths
+        .difference(&manifest_paths)
+        .map(|s| s.to_string())
+        .collect();
+
+    if !missing_in_portable.is_empty() || !missing_in_manifest.is_empty() {
+        log::warn!("Manifest file list inconsistency detected:");
+        if !missing_in_portable.is_empty() {
+            log::warn!("  Files in manifest but not in portable: {:?}", missing_in_portable);
+        }
+        if !missing_in_manifest.is_empty() {
+            log::warn!("  Files in portable but not in manifest: {:?}", missing_in_manifest);
+        }
+
+        return Err(ManifestInconsistency::FileListMismatch {
+            missing_in_portable,
+            missing_in_manifest,
+        });
+    }
+
+    // Check file MD5 matches (prevent file content changes)
+    let mut md5_mismatches = Vec::new();
+    for portable_file in &reader.files {
+        if let Some(manifest_file) = manifest.files.iter().find(|f| f.path == portable_file.path) {
+            let portable_md5 = String::from_utf8_lossy(portable_file.md5_code).to_string();
+            if manifest_file.md5 != portable_md5 {
+                md5_mismatches.push((
+                    portable_file.path.clone(),
+                    manifest_file.md5.clone(),
+                    portable_md5,
+                ));
+            }
+        }
+    }
+
+    if !md5_mismatches.is_empty() {
+        log::warn!("Manifest MD5 mismatches detected: {} files", md5_mismatches.len());
+        for (path, manifest_md5, portable_md5) in &md5_mismatches {
+            log::warn!("  {}: manifest={}, portable={}", path, manifest_md5, portable_md5);
+        }
+
+        return Err(ManifestInconsistency::MD5Mismatch {
+            mismatches: md5_mismatches,
+        });
+    }
+
+    log::debug!("Manifest consistency check passed in {:.3}ms",
+        start.elapsed().as_secs_f64() * 1000.0);
+
+    Ok(())
+}
+
 /// Generate manifest from extracted files
 pub fn generate_manifest(
     reader: &BinaryReader,

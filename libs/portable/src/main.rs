@@ -26,7 +26,7 @@ const APP_METADATA: &[u8] = &[];
 const APP_METADATA_CONFIG: &str = "meta.toml";
 const META_LINE_PREFIX_TIMESTAMP: &str = "timestamp = ";
 const APP_PREFIX: &str = "rustdesk";
-const VERSION: &str = env!("CARGO_PKG_VERSION");  // 版本号
+const VERSION: &str = env!("CARGO_PKG_VERSION");  // Version number
 const APPNAME_RUNTIME_ENV_KEY: &str = "RUSTDESK_APPNAME";
 #[cfg(windows)]
 const SET_FOREGROUND_WINDOW_ENV_KEY: &str = "SET_FOREGROUND_WINDOW";
@@ -303,92 +303,74 @@ fn setup(
         get_extraction_dir()?
     };
 
+    // === Check process status only once (performance optimization) ===
+    let (has_running, locked_files) = quick_check_directory_in_use(&dir);
+    log::debug!("Process check: has_running={}, locked_files={:?}",
+        has_running, locked_files);
+
+    // Step 1: Timestamp check
     let mut ts = 0;
     let check_start = std::time::Instant::now();
     let timestamp_matches = is_timestamp_matches(&dir, &mut ts);
     log::debug!("timestamp check: {:.3}ms, matches: {}",
         check_start.elapsed().as_secs_f64() * 1000.0, timestamp_matches);
 
-    // Check if files exist (only if timestamp matches)
-    let files_exist = if timestamp_matches {
-        check_files_exist(&reader, &dir)
-    } else {
-        false
-    };
+    // Step 2: Determine if full extraction is needed
+    let need_full_extraction = clear || !timestamp_matches;
 
-    let need_setup = clear || !timestamp_matches || !files_exist;
-    log::debug!("need_setup: {} (clear: {}, timestamp_matches: {}, files_exist: {})",
-        need_setup, clear, timestamp_matches, files_exist);
+    if need_full_extraction {
+        log::info!("Need full extraction (clear: {}, timestamp_matches: {})",
+            clear, timestamp_matches);
 
-    if need_setup {
-        #[cfg(windows)]
-        if _args.is_empty() {
-            *_ui = true;
-            ui::setup();
-        }
-        let remove_start = std::time::Instant::now();
-        std::fs::remove_dir_all(&dir).ok();
-        log::debug!("remove_dir_all: {:.3}ms",
-            remove_start.elapsed().as_secs_f64() * 1000.0);
+        // Step 2.1: Check for running processes
+        if has_running {
+            log::error!("Cannot perform full extraction: directory is in use");
+            log::error!("Locked files: {:?}", locked_files);
 
-        let write_start = std::time::Instant::now();
-        let mut written_count = 0;
-        let mut skipped_count = 0;
-        for file in reader.files.iter() {
-            let file_start = std::time::Instant::now();
-            if let Err(e) = file.write_to_file(&dir) {
-                log::error!("Failed to write file {}: {}", file.path, e);
-            }
-            let elapsed = file_start.elapsed().as_secs_f64() * 1000.0;
-            if elapsed > 10.0 {
-                log::debug!("write file {}: {:.3}ms", file.path, elapsed);
-                written_count += 1;
-            } else {
-                skipped_count += 1;
-            }
-        }
-        log::debug!("write files total: {:.3}ms (written: {}, skipped: {})",
-            write_start.elapsed().as_secs_f64() * 1000.0, written_count, skipped_count);
+            print_repair_instruction(&dir, &locked_files,
+                "A different build of the same version is detected");
 
-        write_meta(&dir, ts);
-
-        #[cfg(windows)]
-        {
-            let broker_start = std::time::Instant::now();
-            win::copy_runtime_broker(&dir);
-            log::debug!("copy_runtime_broker: {:.3}ms",
-                broker_start.elapsed().as_secs_f64() * 1000.0);
+            return None;
         }
 
-        #[cfg(linux)]
-        reader.configure_permission(&dir);
+        // Step 2.2: Safe full extraction
+        return perform_full_extraction(reader, &dir, ts, _args, _ui);
+    }
 
-        // Generate manifest after extraction
-        let manifest_start = std::time::Instant::now();
-        match integrity::generate_manifest(&reader, &dir, VERSION) {
-            Ok(manifest) => {
-                if let Err(e) = manifest.save(&dir) {
-                    log::warn!("Failed to save manifest: {}", e);
-                } else {
-                    log::debug!("manifest generation: {:.3}ms",
-                        manifest_start.elapsed().as_secs_f64() * 1000.0);
+    // Step 3: Timestamp matches, check file integrity
+    log::debug!("Timestamp matches, checking file integrity");
+
+    // Step 3.1: Load or generate manifest
+    let mut manifest = match manifest::FileManifest::load(&dir) {
+        Ok(m) => {
+            log::debug!("Manifest loaded successfully");
+            m
+        }
+        Err(e) => {
+            log::warn!("Failed to load manifest: {}, regenerating", e);
+            match integrity::generate_manifest(&reader, &dir, VERSION) {
+                Ok(new_manifest) => {
+                    if let Err(e) = new_manifest.save(&dir) {
+                        log::error!("Failed to save regenerated manifest: {}", e);
+                        return None;
+                    }
+                    new_manifest
+                }
+                Err(e) => {
+                    log::error!("Failed to generate manifest: {}", e);
+                    return None;
                 }
             }
-            Err(e) => {
-                log::warn!("Failed to generate manifest: {}", e);
-            }
         }
-    } else {
-        log::debug!("skipping file write (timestamp matches)");
+    };
 
-        // Verify file integrity using manifest
-        if std::env::var("RUSTDESK_SKIP_INTEGRITY_CHECK").is_ok() {
-            log::info!("File integrity check skipped (RUSTDESK_SKIP_INTEGRITY_CHECK set)");
-        } else {
-            if !verify_file_integrity(&reader, &dir) {
-                log::error!("File integrity check failed - aborting");
-                return None;
-            }
+    // Step 3.2: Verify files (pass process state to avoid redundant checks)
+    if std::env::var("RUSTDESK_SKIP_INTEGRITY_CHECK").is_ok() {
+        log::info!("File integrity check skipped (RUSTDESK_SKIP_INTEGRITY_CHECK set)");
+    } else {
+        if !verify_and_restore_files(&reader, &dir, &mut manifest, has_running, &locked_files) {
+            log::error!("File integrity check failed - aborting");
+            return None;
         }
     }
 
@@ -398,35 +380,149 @@ fn setup(
     Some(dir.join(&reader.exe))
 }
 
-/// Verify file integrity and restore if needed
-/// Returns true if all files are OK or successfully restored, false if restoration failed
-fn verify_file_integrity(reader: &BinaryReader, dir: &Path) -> bool {
+/// Perform full extraction (directory has been confirmed to be free of running processes)
+fn perform_full_extraction(
+    reader: BinaryReader,
+    dir: &Path,
+    ts: u64,
+    _args: &Vec<String>,
+    _ui: &mut bool,
+) -> Option<PathBuf> {
+    #[cfg(windows)]
+    if _args.is_empty() {
+        *_ui = true;
+        ui::setup();
+    }
+
+    // Clear directory
+    let remove_start = std::time::Instant::now();
+    std::fs::remove_dir_all(&dir).ok();
+    log::debug!("remove_dir_all: {:.3}ms",
+        remove_start.elapsed().as_secs_f64() * 1000.0);
+
+    // Extract all files
+    let write_start = std::time::Instant::now();
+    for file in reader.files.iter() {
+        if let Err(e) = file.write_to_file(&dir) {
+            log::error!("Failed to write file {}: {}", file.path, e);
+        }
+    }
+    log::debug!("write files total: {:.3}ms",
+        write_start.elapsed().as_secs_f64() * 1000.0);
+
+    // Write meta.toml
+    write_meta(&dir, ts);
+
+    #[cfg(windows)]
+    {
+        let broker_start = std::time::Instant::now();
+        win::copy_runtime_broker(&dir);
+        log::debug!("copy_runtime_broker: {:.3}ms",
+            broker_start.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    #[cfg(linux)]
+    reader.configure_permission(&dir);
+
+    // Generate manifest
+    let manifest_start = std::time::Instant::now();
+    match integrity::generate_manifest(&reader, &dir, VERSION) {
+        Ok(manifest) => {
+            if let Err(e) = manifest.save(&dir) {
+                log::warn!("Failed to save manifest: {}", e);
+            } else {
+                log::debug!("manifest generation: {:.3}ms",
+                    manifest_start.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to generate manifest: {}", e);
+        }
+    }
+
+    Some(dir.join(&reader.exe))
+}
+
+/// Print repair instruction (unified error message)
+fn print_repair_instruction(dir: &Path, locked_files: &[String], reason: &str) {
+    eprintln!("\n========================================");
+    eprintln!("ERROR: Installation Requires Repair");
+    eprintln!("========================================");
+    eprintln!("Reason: {}", reason);
+    eprintln!("Directory: {}", dir.display());
+
+    if !locked_files.is_empty() {
+        eprintln!("\nRustDesk is currently running:");
+        for file in locked_files {
+            eprintln!("  - {}", file);
+        }
+    }
+
+    eprintln!("\nTo repair the installation, please run:");
+    eprintln!();
+
+    // Get current executable name
+    let exe_name = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "rustdesk.exe".to_string());
+
+    eprintln!("  {} --repair", exe_name);
+    eprintln!();
+    eprintln!("This will:");
+    eprintln!("  1. Stop all running RustDesk processes");
+    eprintln!("  2. Clean and re-extract all files");
+    eprintln!("  3. Restore the installation to a working state");
+    eprintln!("========================================\n");
+}
+
+/// Verify and restore files (using passed process state to avoid redundant checks)
+fn verify_and_restore_files(
+    reader: &BinaryReader,
+    dir: &Path,
+    manifest: &mut manifest::FileManifest,
+    has_running: bool,
+    locked_files: &[String],
+) -> bool {
     let integrity_start = std::time::Instant::now();
 
-    // Load manifest
-    let mut manifest = match manifest::FileManifest::load(dir) {
-        Ok(m) => m,
-        Err(e) => {
-            log::warn!("Failed to load manifest: {}, regenerating", e);
-            // Regenerate manifest
-            match integrity::generate_manifest(reader, dir, VERSION) {
+    // Step 1: Check manifest consistency with portable data
+    match integrity::verify_manifest_consistency(&manifest, &reader) {
+        Ok(()) => {
+            log::debug!("Manifest consistency check passed");
+        }
+        Err(inconsistency) => {
+            log::warn!("Manifest inconsistency detected: {}", inconsistency.description());
+
+            if has_running {
+                // Process running, do not auto-repair
+                log::error!("Cannot regenerate manifest: directory is in use");
+                print_repair_instruction(&dir, &locked_files,
+                    "Manifest inconsistency detected");
+                return false;
+            }
+
+            // No process running, safe to regenerate
+            log::warn!("Regenerating manifest from portable data");
+            match integrity::generate_manifest(&reader, &dir, VERSION) {
                 Ok(new_manifest) => {
-                    if let Err(e) = new_manifest.save(dir) {
+                    if let Err(e) = new_manifest.save(&dir) {
                         log::error!("Failed to save regenerated manifest: {}", e);
                         return false;
                     }
-                    new_manifest
+                    *manifest = new_manifest;
+                    log::info!("Manifest regenerated successfully");
                 }
                 Err(e) => {
-                    log::error!("Failed to generate manifest: {}", e);
+                    log::error!("Failed to regenerate manifest: {}", e);
                     return false;
                 }
             }
         }
-    };
+    }
 
-    // Verify files
-    let verify_result = integrity::verify_files(&manifest, dir);
+    // Step 2: Verify file integrity
+    let verify_result = integrity::verify_files(&manifest, &dir);
 
     if verify_result.failed.is_empty() {
         log::debug!("file integrity check: {}/{} passed in {:.3}ms",
@@ -438,50 +534,69 @@ fn verify_file_integrity(reader: &BinaryReader, dir: &Path) -> bool {
     log::warn!("File integrity check: {}/{} passed, {} failed",
         verify_result.passed, verify_result.total, verify_result.failed.len());
 
-    // Restore failed files
-    let (restored, failed_to_restore) = integrity::restore_files(reader, dir, &verify_result.failed);
+    if has_running {
+        // Process running, do not attempt auto-restore
+        log::error!("Cannot restore files: directory is in use");
+        log::error!("Failed files: {:?}",
+            verify_result.failed.iter().map(|f| &f.path).collect::<Vec<_>>());
 
-    // Check if any files failed to restore
+        print_repair_instruction(&dir, &locked_files,
+            &format!("{} file(s) corrupted or missing", verify_result.failed.len()));
+
+        return false;
+    }
+
+    // No process running, safe to restore
+    log::info!("No running processes detected, attempting to restore files");
+
+    let (restored, failed_to_restore) = integrity::restore_files(
+        reader,
+        dir,
+        &verify_result.failed,
+    );
+
+    // Check files that failed to restore
     if !failed_to_restore.is_empty() {
-        log::error!("========================================");
-        log::error!("CRITICAL: Failed to restore {} files:", failed_to_restore.len());
+        log::error!("Failed to restore {} files:", failed_to_restore.len());
         for file in &failed_to_restore {
             log::error!("  - {}", file);
         }
-        log::error!("========================================");
-        log::error!("The application cannot continue safely.");
-        log::error!("Please try the following:");
-        log::error!("1. Close all running instances of the application");
-        log::error!("2. Restart the portable executable");
-        log::error!("3. If the problem persists, re-download the portable package");
-        log::error!("========================================");
 
-        // Print to stderr as well for visibility
         eprintln!("\n========================================");
-        eprintln!("ERROR: File integrity check failed");
+        eprintln!("ERROR: File Restoration Failed");
         eprintln!("========================================");
-        eprintln!("Failed to restore {} critical files:", failed_to_restore.len());
+        eprintln!("Failed to restore {} files:", failed_to_restore.len());
         for file in &failed_to_restore {
             eprintln!("  - {}", file);
         }
         eprintln!("\nPossible causes:");
-        eprintln!("  - Files are locked by another process");
         eprintln!("  - Insufficient disk space or permissions");
-        eprintln!("  - Files were manually modified or corrupted");
-        eprintln!("\nPlease close all running instances and try again.");
+        eprintln!("  - Antivirus blocking file access");
+        eprintln!("  - File system errors");
+        eprintln!("\nSuggested actions:");
+        eprintln!("  1. Run as administrator");
+        eprintln!("  2. Check disk space and permissions");
+        eprintln!("  3. Temporarily disable antivirus");
+
+        // Get current executable name
+        let exe_name = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "rustdesk.exe".to_string());
+
+        eprintln!("  4. Try manual repair: {} --repair", exe_name);
         eprintln!("========================================\n");
 
         return false;
     }
 
+    // Update manifest
     if !restored.is_empty() {
-        // Update manifest with restored files
-        if let Err(e) = integrity::update_manifest_after_restore(&mut manifest, reader, dir, &restored) {
+        if let Err(e) = integrity::update_manifest_after_restore(manifest, reader, dir, &restored) {
             log::warn!("Failed to update manifest metadata: {}", e);
         }
 
-        // Save updated manifest
-        if let Err(e) = manifest.save(dir) {
+        if let Err(e) = manifest.save(&dir) {
             log::warn!("Failed to save updated manifest: {}", e);
         }
 
@@ -490,6 +605,360 @@ fn verify_file_integrity(reader: &BinaryReader, dir: &Path) -> bool {
     }
 
     true
+}
+
+/// Quick check: is there a rustdesk process running in the target directory
+/// Returns: (has_running_process, locked_files)
+#[cfg(windows)]
+fn quick_check_directory_in_use(target_dir: &Path) -> (bool, Vec<String>) {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW,
+        PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::Threading::OpenProcess;
+    use windows::Win32::System::ProcessStatus::K32GetModuleFileNameExW;
+    use windows::Win32::System::Threading::PROCESS_QUERY_INFORMATION;
+    use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+
+    let start = std::time::Instant::now();
+
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            log::debug!("Failed to create process snapshot");
+            return (false, Vec::new());
+        };
+
+        if snapshot == INVALID_HANDLE_VALUE {
+            log::debug!("Got invalid handle");
+            return (false, Vec::new());
+        }
+
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..std::mem::zeroed()
+        };
+
+        let target_dir_normalized = target_dir.canonicalize()
+            .unwrap_or_else(|_| target_dir.to_path_buf())
+            .to_string_lossy()
+            .to_lowercase();
+
+        let mut has_running = false;
+        let mut locked_files = Vec::new();
+
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                // Check if process name is rustdesk.exe
+                let exe_name = String::from_utf16_lossy(
+                    &entry.szExeFile[..entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(0)]
+                );
+
+                if exe_name.to_lowercase() == "rustdesk.exe" {
+                    // Get full path of process
+                    if let Ok(process) = OpenProcess(PROCESS_QUERY_INFORMATION, false, entry.th32ProcessID) {
+                        let mut path_buf = vec![0u16; 4096];
+                        let len = K32GetModuleFileNameExW(
+                            Some(process),
+                            None,
+                            &mut path_buf,
+                        );
+
+                        if len > 0 {
+                            let process_path = OsString::from_wide(&path_buf[..len as usize])
+                                .to_string_lossy()
+                                .to_lowercase();
+
+                            // Check if process path is in target directory
+                            if process_path.starts_with(&target_dir_normalized) {
+                                log::warn!("Found running rustdesk process in target directory:");
+                                log::warn!("  PID: {}", entry.th32ProcessID);
+                                log::warn!("  Path: {}", process_path);
+
+                                has_running = true;
+
+                                // Extract file name
+                                if let Some(file_name) = std::path::Path::new(&process_path)
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                {
+                                    locked_files.push(file_name.to_string());
+                                }
+                            }
+                        }
+
+                        let _ = CloseHandle(process);
+                    }
+                }
+
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snapshot);
+
+        log::debug!("Process check completed in {:.3}ms, has_running: {}",
+            start.elapsed().as_secs_f64() * 1000.0, has_running);
+
+        (has_running, locked_files)
+    }
+}
+
+#[cfg(not(windows))]
+fn quick_check_directory_in_use(_target_dir: &Path) -> (bool, Vec<String>) {
+    // Linux/macOS: Simple check, could use lsof or direct attempt
+    (false, Vec::new())
+}
+
+/// Force stop all rustdesk processes in the specified directory
+#[cfg(windows)]
+fn force_stop_directory_processes(target_dir: &Path) -> Result<Vec<u32>, String> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW,
+        PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess};
+    use windows::Win32::System::Threading::{PROCESS_TERMINATE, PROCESS_QUERY_INFORMATION};
+    use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows::Win32::System::ProcessStatus::K32GetModuleFileNameExW;
+
+    let start = std::time::Instant::now();
+
+    log::info!("Force stopping all rustdesk processes in directory: {}", target_dir.display());
+
+    let target_dir_normalized = target_dir.canonicalize()
+        .map_err(|e| format!("Failed to normalize path: {}", e))?
+        .to_string_lossy()
+        .to_lowercase();
+
+    let mut stopped_pids = Vec::new();
+
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return Err("Failed to create process snapshot".to_string());
+        };
+
+        if snapshot == INVALID_HANDLE_VALUE {
+            return Err("Got invalid handle".to_string());
+        }
+
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..std::mem::zeroed()
+        };
+
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                let exe_name = String::from_utf16_lossy(
+                    &entry.szExeFile[..entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(0)]
+                );
+
+                if exe_name.to_lowercase() == "rustdesk.exe" {
+                    // Get full path
+                    if let Ok(process) = OpenProcess(
+                        PROCESS_QUERY_INFORMATION | PROCESS_TERMINATE,
+                        false,
+                        entry.th32ProcessID
+                    ) {
+                        let mut path_buf = vec![0u16; 4096];
+                        let len = K32GetModuleFileNameExW(
+                            Some(process),
+                            None,
+                            &mut path_buf,
+                        );
+
+                        if len > 0 {
+                            let process_path = OsString::from_wide(&path_buf[..len as usize])
+                                .to_string_lossy()
+                                .to_lowercase();
+
+                            // Check if in target directory
+                            if process_path.starts_with(&target_dir_normalized) {
+                                log::info!("Terminating process: PID={}, Path={}",
+                                    entry.th32ProcessID, process_path);
+
+                                if TerminateProcess(process, 1).is_ok() {
+                                    stopped_pids.push(entry.th32ProcessID);
+                                    log::info!("Process {} terminated successfully", entry.th32ProcessID);
+                                } else {
+                                    log::warn!("Failed to terminate process {}", entry.th32ProcessID);
+                                }
+                            }
+                        }
+
+                        let _ = CloseHandle(process);
+                    }
+                }
+
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+
+        let _ = CloseHandle(snapshot);
+    }
+
+    if !stopped_pids.is_empty() {
+        // Wait for processes to fully exit
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        log::info!("Stopped {} processes in {:.3}ms",
+            stopped_pids.len(), start.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    Ok(stopped_pids)
+}
+
+#[cfg(not(windows))]
+fn force_stop_directory_processes(_target_dir: &Path) -> Result<Vec<u32>, String> {
+    // TODO: Linux/macOS implementation
+    Ok(Vec::new())
+}
+
+/// Handle --repair command (merged original --fix and --force-repair functionality)
+fn handle_repair() {
+    println!("RustDesk Portable Repair\n");
+
+    // Get extraction directory
+    let Some(dir) = get_extraction_dir() else {
+        let err_msg = "Failed to get extraction directory";
+        log::error!("{}", err_msg);
+        eprintln!("{}", err_msg);
+        exit_process(1);
+    };
+
+    if !dir.exists() {
+        let err_msg = format!("Directory does not exist: {}", dir.display());
+        log::error!("{}", err_msg);
+        eprintln!("{}", err_msg);
+        exit_process(1);
+    }
+
+    log::info!("Repair started for directory: {}", dir.display());
+    println!("Target directory: {}", dir.display());
+    println!();
+
+    // Step 1: Detect running processes
+    println!("Step 1: Checking for running processes...");
+    let (has_running, locked_files) = quick_check_directory_in_use(&dir);
+
+    if has_running {
+        println!("Found running RustDesk processes:");
+        for file in &locked_files {
+            println!("  - {}", file);
+        }
+        println!();
+
+        println!("Step 2: Stopping processes...");
+        match force_stop_directory_processes(&dir) {
+            Ok(stopped_pids) => {
+                if !stopped_pids.is_empty() {
+                    println!("Successfully stopped {} process(es): {:?}",
+                        stopped_pids.len(), stopped_pids);
+                } else {
+                    println!("No processes were stopped (may have already exited)");
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to stop processes: {}", e);
+                eprintln!("Please manually stop all RustDesk processes and try again.");
+                exit_process(1);
+            }
+        }
+        println!();
+    } else {
+        println!("No running processes found.");
+        println!();
+    }
+
+    // Step 2: Perform full re-extraction
+    println!("Step 2: Performing full re-extraction...");
+
+    let reader = BinaryReader::default();
+    log::info!("BinaryReader loaded: {} files", reader.files.len());
+
+    // Clear directory
+    print!("  Removing old files... ");
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        println!("Failed: {}", e);
+        exit_process(1);
+    }
+    println!("OK");
+
+    // Re-extract files
+    print!("  Extracting {} files... ", reader.files.len());
+    let mut failed_files = Vec::new();
+    for file in reader.files.iter() {
+        if let Err(e) = file.write_to_file(&dir) {
+            log::error!("Failed to write file {}: {}", file.path, e);
+            failed_files.push(file.path.clone());
+        }
+    }
+
+    if !failed_files.is_empty() {
+        println!("Failed ({} files)", failed_files.len());
+        eprintln!("\nFailed to extract:");
+        for file in &failed_files {
+            eprintln!("  - {}", file);
+        }
+        exit_process(1);
+    }
+    println!("OK");
+
+    // Write meta.toml
+    print!("  Writing metadata... ");
+    let mut ts = 0;
+    if let Ok(app_metadata) = std::str::from_utf8(APP_METADATA) {
+        for line in app_metadata.lines() {
+            if line.starts_with(META_LINE_PREFIX_TIMESTAMP) {
+                if let Ok(stored_ts) = line.replace(META_LINE_PREFIX_TIMESTAMP, "").parse::<u64>() {
+                    ts = stored_ts;
+                    break;
+                }
+            }
+        }
+    }
+    write_meta(&dir, ts);
+    println!("OK");
+
+    // Generate manifest
+    print!("  Generating manifest... ");
+    match integrity::generate_manifest(&reader, &dir, VERSION) {
+        Ok(manifest) => {
+            if let Err(e) = manifest.save(&dir) {
+                println!("Failed: {}", e);
+                exit_process(1);
+            }
+            println!("OK");
+        }
+        Err(e) => {
+            println!("Failed: {}", e);
+            exit_process(1);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        print!("  Copying runtime files... ");
+        win::copy_runtime_broker(&dir);
+        println!("OK");
+    }
+
+    println!();
+    println!("========================================");
+    println!("Repair completed successfully!");
+    println!("========================================");
+    println!("  Directory: {}", dir.display());
+    println!("  Files: {}", reader.files.len());
+    println!();
+
+    log::info!("Repair completed successfully");
+    exit_process(0);
 }
 
 /// Check if running in help mode (CLI help)
@@ -740,132 +1209,6 @@ fn handle_verify(args: &Vec<String>) {
     }
 }
 
-/// Handle --fix command: verify and auto-repair files
-fn handle_fix() {
-    println!("RustDesk Portable Package Fixer\n");
-
-    // Get extraction directory
-    let Some(dir) = get_extraction_dir() else {
-        let err_msg = "Failed to get extraction directory";
-        log::error!("{}", err_msg);
-        eprintln!("{}", err_msg);
-        exit_process(1);
-    };
-
-    if !dir.exists() {
-        let err_msg = format!("Directory does not exist: {}", dir.display());
-        log::error!("{}", err_msg);
-        eprintln!("{}", err_msg);
-        exit_process(1);
-    }
-
-    let reader = BinaryReader::default();
-    log::info!("Fix started, files: {}", reader.files.len());
-
-    println!("Verifying files with MD5 checksums...");
-    let verify_start = std::time::Instant::now();
-    let result = verify::verify_directory(&reader, &dir);
-    let verify_elapsed = verify_start.elapsed().as_secs_f64();
-
-    println!("\nVerification Report:");
-    println!("================================================================================");
-    println!("Total files: {}", result.total_files);
-    println!("Passed: {}", result.passed_files);
-    println!("Failed: {}", result.failures.len());
-    println!("Verification time: {:.2}s", verify_elapsed);
-
-    if result.failures.is_empty() {
-        println!("\n✓ All files verified successfully. No repairs needed.");
-        log::info!("Fix completed: no repairs needed");
-        exit_process(0);
-    }
-
-    // Show failed files
-    println!("\nFiles requiring repair:");
-    for failure in &result.failures {
-        println!("  - {} ({})", failure.path,
-            match failure.failure_type {
-                verify::FailureType::Missing => "missing".to_string(),
-                verify::FailureType::HashMismatch => "hash mismatch".to_string(),
-            }
-        );
-    }
-
-    // Auto-repair failed files
-    println!("\nRepairing files...");
-    let repair_start = std::time::Instant::now();
-    let mut repaired_count = 0;
-    let mut failed_repairs = Vec::new();
-
-    for failure in &result.failures {
-        print!("  Repairing: {}... ", failure.path);
-
-        // Find file in portable data
-        if let Some(file_data) = reader.files.iter().find(|f| f.path == failure.path) {
-            match file_data.write_to_file(&dir) {
-                Ok(()) => {
-                    // Verify the repair
-                    let file_path = dir.join(&failure.path);
-                    match std::fs::read(&file_path) {
-                        Ok(file_content) => {
-                            let actual_md5 = format!("{:x}", md5::compute(&file_content));
-                            let expected_md5 = String::from_utf8_lossy(file_data.md5_code).to_string();
-
-                            if actual_md5 == expected_md5 {
-                                println!("✓ OK");
-                                repaired_count += 1;
-                                log::info!("Repaired: {}", failure.path);
-                            } else {
-                                println!("✗ FAILED (MD5 mismatch after repair)");
-                                failed_repairs.push(failure.path.clone());
-                                log::error!("Failed to repair {}: MD5 mismatch", failure.path);
-                            }
-                        }
-                        Err(e) => {
-                            println!("✗ FAILED (cannot read: {})", e);
-                            failed_repairs.push(failure.path.clone());
-                            log::error!("Failed to repair {}: {}", failure.path, e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    println!("✗ FAILED ({})", e);
-                    failed_repairs.push(failure.path.clone());
-                    log::error!("Failed to repair {}: {}", failure.path, e);
-                }
-            }
-        } else {
-            println!("✗ FAILED (not found in portable data)");
-            failed_repairs.push(failure.path.clone());
-            log::error!("Failed to repair {}: not found in portable data", failure.path);
-        }
-    }
-
-    let repair_elapsed = repair_start.elapsed().as_secs_f64();
-
-    // Print summary
-    println!("\nRepair Summary:");
-    println!("================================================================================");
-    println!("Repaired: {}/{}", repaired_count, result.failures.len());
-    println!("Failed: {}", failed_repairs.len());
-    println!("Repair time: {:.2}s", repair_elapsed);
-
-    let total_elapsed = get_start_time().elapsed().as_secs_f64();
-    log::info!("Fix completed: repaired {}/{}, elapsed: {:.3}s",
-        repaired_count, result.failures.len(), total_elapsed);
-
-    if !failed_repairs.is_empty() {
-        println!("\n✗ Some files could not be repaired:");
-        for path in &failed_repairs {
-            println!("  - {}", path);
-        }
-        exit_process(1);
-    } else {
-        println!("\n✓ All files repaired successfully.");
-        exit_process(0);
-    }
-}
-
 /// Execute in CLI mode with console output support
 fn execute_cli_mode(path: PathBuf, args: Vec<String>) {
     log::debug!("execute_cli_mode: started");
@@ -1076,8 +1419,8 @@ fn main() {
                     handle_verify(&args);
                     return;
                 }
-                "--fix" => {
-                    handle_fix();
+                "--repair" => {
+                    handle_repair();
                     return;
                 }
                 _ => {}
@@ -1130,7 +1473,7 @@ fn main() {
 fn proc_command_help(command: &str) -> bool {
     let cmd_without_prefix = command.strip_prefix("--").unwrap_or(command);
     // Only handle packer commands
-    if matches!(cmd_without_prefix, "dump-manifest" | "verify" | "fix") {
+    if matches!(cmd_without_prefix, "dump-manifest" | "verify" | "repair") {
         print_command_help(command);
         return true;
     }
@@ -1146,10 +1489,10 @@ fn print_help_header() {
     println!("PORTABLE PACKAGE COMMANDS:");
     println!("  --dump-manifest              Display manifest file contents");
     println!("  --verify [--quick]           Verify package integrity");
-    println!("  --fix                        Check and fix file integrity");
+    println!("  --repair                     Stop processes and repair installation");
     println!();
     println!("For detailed command help, use:");
-    println!("  --help <command>             Example: --help verify, --help fix");
+    println!("  --help <command>             Example: --help verify, --help repair");
     println!();
     println!("================================================================================");
     println!();
@@ -1197,31 +1540,43 @@ fn print_command_help(command: &str) {
             println!("    0    All files verified successfully");
             println!("    1    Verification failed\n");
         }
-        "fix" => {
-            println!("COMMAND: --fix\n");
-            println!("Check and fix file integrity.\n");
+        "repair" => {
+            println!("COMMAND: --repair\n");
+            println!("Stop processes and repair installation.\n");
             println!("DESCRIPTION:");
-            println!("    Performs full MD5 verification on all files and automatically");
-            println!("    repairs any corrupted or missing files from embedded data.");
-            println!("    After repair, verifies the fix was successful.");
+            println!("    This command performs a complete repair of the portable installation.");
+            println!("    It will:");
+            println!("    1. Detect and stop all RustDesk processes in the target directory");
+            println!("    2. Remove all existing files");
+            println!("    3. Perform complete re-extraction from portable package");
+            println!("    4. Regenerate manifest and metadata");
+            println!();
+            println!("USE CASES:");
+            println!("    - Same version but different build timestamp with running processes");
+            println!("    - Critical files corrupted");
+            println!("    - Manifest inconsistency detected");
+            println!("    - File integrity check failed during startup");
             println!();
             println!("PROCESS:");
-            println!("    1. Verify all files with MD5 checksums");
-            println!("    2. List files requiring repair");
-            println!("    3. Auto-repair each failed file");
-            println!("    4. Verify repairs were successful");
-            println!("    5. Report results");
+            println!("    1. Check for running processes and stop them");
+            println!("    2. Clean the installation directory");
+            println!("    3. Extract all files from portable package");
+            println!("    4. Verify extraction completed successfully");
+            println!();
+            println!("WARNING:");
+            println!("    This command will forcefully terminate all RustDesk processes!");
+            println!("    Make sure to save any important work before running.");
             println!();
             println!("USAGE:");
-            println!("    rustdesk --fix");
+            println!("    rustdesk --repair");
             println!();
             println!("EXIT CODE:");
-            println!("    0    All files OK or successfully repaired");
-            println!("    1    Some files could not be repaired\n");
+            println!("    0    Repair completed successfully");
+            println!("    1    Repair failed\n");
         }
         _ => {
             println!("Unknown command: {}\n", command);
-            println!("Available commands: dump-manifest, verify, fix");
+            println!("Available commands: dump-manifest, verify, repair");
             println!("Use --help to see all commands.\n");
         }
     }
