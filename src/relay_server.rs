@@ -30,11 +30,14 @@ use std::{
 
 type Usage = (usize, usize, usize, usize);
 
+use crate::config_manager::ConfigManager;
+use crate::copy_strategy;
 lazy_static::lazy_static! {
-    static ref PEERS: Mutex<HashMap<String, Box<dyn StreamTrait>>> = Default::default();
+    static ref PEERS: Mutex<HashMap<String, (Box<dyn StreamTrait>, SocketAddr)>> = Default::default();
     static ref USAGE: RwLock<HashMap<String, Usage>> = Default::default();
     static ref BLACKLIST: RwLock<HashSet<String>> = Default::default();
     static ref BLOCKLIST: RwLock<HashSet<String>> = Default::default();
+    static ref CONFIG_MANAGER: RwLock<ConfigManager> = RwLock::new(ConfigManager::new("server_config.json"));
 }
 
 static DOWNGRADE_THRESHOLD_100: AtomicUsize = AtomicUsize::new(66); // 0.66
@@ -432,8 +435,8 @@ async fn make_pair_(stream: impl StreamTrait, addr: SocketAddr, key: &str, limit
                     return;
                 }
                 if !rf.uuid.is_empty() {
-                    let mut peer = PEERS.lock().await.remove(&rf.uuid);
-                    if let Some(peer) = peer.as_mut() {
+                    let mut peer_data = PEERS.lock().await.remove(&rf.uuid);
+                    if let Some((mut peer, peer_addr)) = peer_data {
                         log::info!("Relayrequest {} from {} got paired", rf.uuid, addr);
                         let id = format!("{}:{}", addr.ip(), addr.port());
                         USAGE.write().await.insert(id.clone(), Default::default());
@@ -442,7 +445,7 @@ async fn make_pair_(stream: impl StreamTrait, addr: SocketAddr, key: &str, limit
                             stream.set_raw();
                             log::info!("Both are raw");
                         }
-                        if let Err(err) = relay(addr, &mut stream, peer, limiter, id.clone()).await
+                        if let Err(err) = relay(addr, &mut stream, &mut peer, peer_addr, limiter, id.clone()).await
                         {
                             log::info!("Relay of {} closed: {}", addr, err);
                         } else {
@@ -451,7 +454,7 @@ async fn make_pair_(stream: impl StreamTrait, addr: SocketAddr, key: &str, limit
                         USAGE.write().await.remove(&id);
                     } else {
                         log::info!("New relay request {} from {}", rf.uuid, addr);
-                        PEERS.lock().await.insert(rf.uuid.clone(), Box::new(stream));
+                        PEERS.lock().await.insert(rf.uuid.clone(), (Box::new(stream), addr));
                         sleep(30.).await;
                         PEERS.lock().await.remove(&rf.uuid);
                     }
@@ -465,9 +468,11 @@ async fn relay(
     addr: SocketAddr,
     stream: &mut impl StreamTrait,
     peer: &mut Box<dyn StreamTrait>,
+    peer_addr: SocketAddr,
     total_limiter: Limiter,
     id: String,
 ) -> ResultType<()> {
+    use crate::data_transfer_filter::{is_intranet_ip, should_block_clipboard};
     let ip = addr.ip().to_string();
     let mut tm = std::time::Instant::now();
     let mut elapsed = 0;
@@ -488,17 +493,24 @@ async fn relay(
             res = peer.recv() => {
                 if let Some(Ok(bytes)) = res {
                     last_recv_time = std::time::Instant::now();
-                    let nb = bytes.len() * 8;
-                    if blacked || downgrade {
-                        blacklist_limiter.consume(nb).await;
+                    
+                    // Phase 2: Use copy_strategy for flexible policy
+                    let config_manager = CONFIG_MANAGER.read().await;
+                    if copy_strategy::should_block_transfer(&bytes, &peer_addr.ip(), &addr.ip(), &config_manager) {
+                        log::warn!("Blocked transfer from {} to {} by policy", peer_addr, addr);
                     } else {
-                        limiter.consume(nb).await;
-                    }
-                    total_limiter.consume(nb).await;
-                    total += nb;
-                    total_s += nb;
-                    if !bytes.is_empty() {
-                        stream.send_raw(bytes.into()).await?;
+                        let nb = bytes.len() * 8;
+                        if blacked || downgrade {
+                            blacklist_limiter.consume(nb).await;
+                        } else {
+                            limiter.consume(nb).await;
+                        }
+                        total_limiter.consume(nb).await;
+                        total += nb;
+                        total_s += nb;
+                        if !bytes.is_empty() {
+                            stream.send_raw(bytes.into()).await?;
+                        }
                     }
                 } else {
                     break;

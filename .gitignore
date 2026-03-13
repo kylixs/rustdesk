@@ -1,12 +1,26 @@
-target
-id*
-db*
-debian-build
-debian/.debhelper
-debian/debhelper-build-stamp
-.DS_Store
-.vscode
-src/version.rs
+# Build artifacts
+target/
+.cargo/
+
+# Logs
+*.log
+hbbr.log
+hbbs.log
+
+# Database
+*.sqlite3
 db_v2.sqlite3
-test.*
-.idea
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db

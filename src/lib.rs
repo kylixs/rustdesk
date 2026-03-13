@@ -4,3 +4,7 @@ pub mod common;
 mod database;
 mod peer;
 mod version;
+pub mod relay_server;
+pub mod data_transfer_filter;
+pub mod config_manager;
+pub mod copy_strategy;
