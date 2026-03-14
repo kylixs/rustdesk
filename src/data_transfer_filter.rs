@@ -283,3 +283,32 @@ mod tests {
         assert!(!is_intranet_ipv6(&Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 0))); // Documentation range
     }
 }
+
+// ============================================
+// Compatibility Layer for Existing Code
+// ============================================
+
+/// Legacy function for backward compatibility
+/// 旧版本API：保留以兼容现有代码
+pub fn might_be_clipboard_message(data: &[u8]) -> bool {
+    is_clipboard_message(data)
+}
+
+/// Legacy function for backward compatibility
+/// 旧版本API：保留以兼容现有代码
+pub fn might_be_file_transfer_message(data: &[u8]) -> bool {
+    is_file_transfer_message(data)
+}
+
+/// Legacy function for backward compatibility
+/// 旧版本API：保留以兼容现有代码
+/// 
+/// 注意：这个简化版本只检查方向，不检查数据内容
+/// 应该使用should_block_transfer代替
+pub fn should_block_clipboard(data: &[u8], from_intranet: bool) -> bool {
+    if !from_intranet {
+        return false;
+    }
+    
+    is_clipboard_message(data) || is_file_transfer_message(data)
+}
