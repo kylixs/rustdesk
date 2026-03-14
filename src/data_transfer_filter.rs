@@ -100,7 +100,8 @@ pub fn is_clipboard_message(data: &[u8]) -> bool {
     
     // Check for MultiClipboards message signature
     // Field 1, wire type 2 (length-delimited) = 0x0A
-    if data[0] == 0x0A {
+    // Need at least 2 bytes for valid protobuf (field tag + length)
+    if data.len() > 1 && data[0] == 0x0A {
         return true;
     }
     
