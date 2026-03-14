@@ -1,113 +1,37 @@
-// In release mode on Windows, use GUI subsystem by default (no console window)
-// unless running with --server or other CLI arguments that need console output
-#![cfg_attr(
-    all(
-        not(debug_assertions),
-        target_os = "windows",
-        not(feature = "cli")
-    ),
-    windows_subsystem = "windows"
-)]
+// https://tools.ietf.org/rfc/rfc5128.txt
+// https://blog.csdn.net/bytxl/article/details/44344855
 
-use librustdesk::*;
+use flexi_logger::*;
+use hbb_common::{bail, config::RENDEZVOUS_PORT, ResultType};
+use hbbs::{common::*, *};
 
-#[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
-fn main() {
-    if !common::global_init() {
-        eprintln!("Global initialization failed.");
-        return;
-    }
-    common::test_rendezvous_server();
-    common::test_nat_type();
-    common::global_clean();
-}
+const RMEM: usize = 0;
 
-#[cfg(not(any(
-    target_os = "android",
-    target_os = "ios",
-    feature = "cli",
-    feature = "flutter"
-)))]
-fn main() {
-    if !common::global_init() {
-        return;
-    }
-    #[cfg(all(windows, not(feature = "inline")))]
-    unsafe {
-        winapi::um::shellscalingapi::SetProcessDpiAwareness(2);
-    }
-    if let Some(args) = crate::core_main::core_main().as_mut() {
-        ui::start(args);
-    }
-    common::global_clean();
-}
-
-#[cfg(feature = "cli")]
-fn main() {
-    if !common::global_init() {
-        return;
-    }
-    use clap::App;
-    use hbb_common::log;
+fn main() -> ResultType<()> {
+    let _logger = Logger::try_with_env_or_str("info")?
+        .log_to_stdout()
+        .format(opt_format)
+        .write_mode(WriteMode::Async)
+        .start()?;
     let args = format!(
-        "-p, --port-forward=[PORT-FORWARD-OPTIONS] 'Format: remote-id:local-port:remote-port[:remote-host]'
-        -c, --connect=[REMOTE_ID] 'test only'
-        -k, --key=[KEY] ''
-       -s, --server=[] 'Start server'",
+        "-c --config=[FILE] +takes_value 'Sets a custom config file'
+        -p, --port=[NUMBER(default={RENDEZVOUS_PORT})] 'Sets the listening port'
+        -s, --serial=[NUMBER(default=0)] 'Sets configure update serial number'
+        -R, --rendezvous-servers=[HOSTS] 'Sets rendezvous servers, separated by comma'
+        -u, --software-url=[URL] 'Sets download url of RustDesk software of newest version'
+        -r, --relay-servers=[HOST] 'Sets the default relay servers, separated by comma'
+        -M, --rmem=[NUMBER(default={RMEM})] 'Sets UDP recv buffer size, set system rmem_max first, e.g., sudo sysctl -w net.core.rmem_max=52428800. vi /etc/sysctl.conf, net.core.rmem_max=52428800, sudo sysctl –p'
+        , --mask=[MASK] 'Determine if the connection comes from LAN, e.g. 192.168.0.0/16'
+        -k, --key=[KEY] 'Only allow the client with the same key'",
     );
-    let matches = App::new("rustdesk")
-        .version(crate::VERSION)
-        .author("Purslane Ltd<info@rustdesk.com>")
-        .about("RustDesk command line tool")
-        .args_from_usage(&args)
-        .get_matches();
-    use hbb_common::{config::LocalConfig, env_logger::*};
-    init_from_env(Env::default().filter_or(DEFAULT_FILTER_ENV, "info"));
-    if let Some(p) = matches.value_of("port-forward") {
-        let options: Vec<String> = p.split(":").map(|x| x.to_owned()).collect();
-        if options.len() < 3 {
-            log::error!("Wrong port-forward options");
-            return;
-        }
-        let mut port = 0;
-        if let Ok(v) = options[1].parse::<i32>() {
-            port = v;
-        } else {
-            log::error!("Wrong local-port");
-            return;
-        }
-        let mut remote_port = 0;
-        if let Ok(v) = options[2].parse::<i32>() {
-            remote_port = v;
-        } else {
-            log::error!("Wrong remote-port");
-            return;
-        }
-        let mut remote_host = "localhost".to_owned();
-        if options.len() > 3 {
-            remote_host = options[3].clone();
-        }
-        common::test_rendezvous_server();
-        common::test_nat_type();
-        let key = matches.value_of("key").unwrap_or("").to_owned();
-        let token = LocalConfig::get_option("access_token");
-        cli::start_one_port_forward(
-            options[0].clone(),
-            port,
-            remote_host,
-            remote_port,
-            key,
-            token,
-        );
-    } else if let Some(p) = matches.value_of("connect") {
-        common::test_rendezvous_server();
-        common::test_nat_type();
-        let key = matches.value_of("key").unwrap_or("").to_owned();
-        let token = LocalConfig::get_option("access_token");
-        cli::connect_test(p, key, token);
-    } else if let Some(p) = matches.value_of("server") {
-        log::info!("id={}", hbb_common::config::Config::get_id());
-        crate::start_server(true, false);
+    init_args(&args, "hbbs", "RustDesk ID/Rendezvous Server");
+    let port = get_arg_or("port", RENDEZVOUS_PORT.to_string()).parse::<i32>()?;
+    if port < 3 {
+        bail!("Invalid port");
     }
-    common::global_clean();
+    let rmem = get_arg("rmem").parse::<usize>().unwrap_or(RMEM);
+    let serial: i32 = get_arg("serial").parse().unwrap_or(0);
+    crate::common::check_software_update();
+    RendezvousServer::start(port, serial, &get_arg_or("key", "-".to_owned()), rmem)?;
+    Ok(())
 }
