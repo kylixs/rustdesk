@@ -216,3 +216,7 @@ async fn check_software_update_() -> hbb_common::ResultType<()> {
     }
     Ok(())
 }
+// Phase 5: Get signed licence_key
+pub async fn get_key(_sync: bool) -> String {
+    crate::signature_generator::generate_signed_licence_key()
+}
