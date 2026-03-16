@@ -32,6 +32,7 @@ type Usage = (usize, usize, usize, usize);
 
 use crate::config_manager::ConfigManager;
 use crate::copy_strategy;
+use crate::version_validator::VersionValidator;
 lazy_static::lazy_static! {
     static ref PEERS: Mutex<HashMap<String, (Box<dyn StreamTrait>, SocketAddr)>> = Default::default();
     static ref USAGE: RwLock<HashMap<String, Usage>> = Default::default();
@@ -430,7 +431,17 @@ async fn make_pair_(stream: impl StreamTrait, addr: SocketAddr, key: &str, limit
     if let Ok(Some(Ok(bytes))) = timeout(30_000, stream.recv()).await {
         if let Ok(msg_in) = RendezvousMessage::parse_from_bytes(&bytes) {
             if let Some(rendezvous_message::Union::RequestRelay(rf)) = msg_in.union {
-                if !key.is_empty() && rf.licence_key != key {
+                // Phase 3: Version validation
+                // Try version-based validation first (licence_key format: version:timestamp:signature)
+                if rf.licence_key.contains(':') {
+                    // New format with version validation
+                    let validator = VersionValidator::new("".to_string()); // TODO: read from config
+                    if !validator.verify_licence_key(&rf.licence_key) {
+                        log::warn!("Version validation failed from {}", addr);
+                        return;
+                    }
+                } else if !key.is_empty() && rf.licence_key != key {
+                    // Legacy format: simple key comparison
                     log::warn!("Relay authentication failed from {} - invalid key", addr);
                     return;
                 }
