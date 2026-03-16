@@ -2,25 +2,19 @@
   "version": "1.0",
   "server_whitelist": [
     {
-      "ip": "192.168.1.100",
+      "ip": "172.28.2.10",
       "strategy": "client_to_server",
-      "description": "内部服务器A - 允许客户端复制到服务器",
+      "description": "被控端A - 只允许控制端复制到被控端",
       "enabled": true
     },
     {
-      "ip": "192.168.1.101",
+      "ip": "172.28.2.11",
       "strategy": "no_copy",
-      "description": "内部服务器B - 完全禁止复制",
-      "enabled": true
-    },
-    {
-      "ip": "10.0.0.0/8",
-      "strategy": "client_to_server",
-      "description": "内网段默认策略 - 允许客户端复制到服务器",
+      "description": "被控端B - 完全禁止复制",
       "enabled": true
     }
   ],
-  "defaultStrategy": "reject",
+  "defaultStrategy": "bidirectional",
   "hotReload": true,
-  "configCheckInterval": 30
+  "configCheckInterval": 5
 }

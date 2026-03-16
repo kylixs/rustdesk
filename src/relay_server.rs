@@ -38,7 +38,7 @@ lazy_static::lazy_static! {
     static ref USAGE: RwLock<HashMap<String, Usage>> = Default::default();
     static ref BLACKLIST: RwLock<HashSet<String>> = Default::default();
     static ref BLOCKLIST: RwLock<HashSet<String>> = Default::default();
-    static ref CONFIG_MANAGER: RwLock<ConfigManager> = RwLock::new(ConfigManager::new("server_config.json"));
+    static ref CONFIG_MANAGER: tokio::sync::RwLock<ConfigManager> = tokio::sync::RwLock::new(ConfigManager::new("server_config.json"));
 }
 
 static DOWNGRADE_THRESHOLD_100: AtomicUsize = AtomicUsize::new(66); // 0.66
@@ -506,7 +506,7 @@ async fn relay(
                     last_recv_time = std::time::Instant::now();
                     
                     // Phase 2: Use copy_strategy for flexible policy
-                    let config_manager = CONFIG_MANAGER.read().await;
+                    let config_manager = tokio::sync::RwLock::read(&CONFIG_MANAGER).await;
                     if copy_strategy::should_block_transfer(&bytes, &peer_addr.ip(), &addr.ip(), &config_manager) {
                         log::warn!("Blocked transfer from {} to {} by policy", peer_addr, addr);
                     } else {

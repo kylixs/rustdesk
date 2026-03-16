@@ -1,7 +1,7 @@
 use clap::App;
-mod common;
-mod relay_server;
-mod data_transfer_filter;
+use hbbs::common;
+use hbbs::relay_server;
+use hbbs::data_transfer_filter;
 use flexi_logger::*;
 use hbb_common::{config::RELAY_PORT, ResultType};
 use relay_server::*;
