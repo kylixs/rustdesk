@@ -2,19 +2,13 @@
   "version": "1.0",
   "server_whitelist": [
     {
-      "ip": "172.28.2.10",
+      "ip": "0.0.0.0/0",
       "strategy": "client_to_server",
-      "description": "被控端A - 只允许控制端复制到被控端",
-      "enabled": true
-    },
-    {
-      "ip": "172.28.2.11",
-      "strategy": "no_copy",
-      "description": "被控端B - 完全禁止复制",
+      "description": "Default: Allow internet→intranet, block intranet→internet",
       "enabled": true
     }
   ],
-  "defaultStrategy": "bidirectional",
+  "defaultStrategy": "reject",
   "hotReload": true,
-  "configCheckInterval": 5
+  "configCheckInterval": 30
 }
